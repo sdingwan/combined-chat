@@ -10,31 +10,47 @@
         font-family: "Inter", "Segoe UI", system-ui, sans-serif;
       }
 
+      html,
+      body {
+        height: 100%;
+      }
+
       body {
         margin: 0;
-        padding: 24px;
-        background: #0f172a;
-        color: #f8fafc;
+        padding: 20px;
+        background: #0e0e10;
+        color: #efeff1;
         min-height: 100vh;
         display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        overflow-x: hidden;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 800px;
+        display: flex;
         flex-direction: column;
+        gap: 16px;
       }
 
       h1 {
-        margin: 0 0 16px;
-        font-size: 2rem;
-        font-weight: 600;
+        margin: 0;
+        font-size: 1.6rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
       }
 
       form {
         display: flex;
         flex-wrap: wrap;
         gap: 12px;
-        margin-bottom: 16px;
-        background: rgba(15, 23, 42, 0.6);
-        padding: 16px;
-        border-radius: 12px;
-        border: 1px solid rgba(148, 163, 184, 0.2);
+        margin-bottom: 8px;
+        background: #18181b;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
       }
 
       label {
@@ -59,10 +75,10 @@
       }
 
       button {
-        padding: 10px 16px;
+        padding: 9px 16px;
         border-radius: 8px;
         border: none;
-        background: #6366f1;
+        background: #9146ff;
         color: white;
         font-weight: 600;
         cursor: pointer;
@@ -79,48 +95,52 @@
       }
 
       #status {
-        margin-bottom: 12px;
         min-height: 20px;
-        font-size: 0.95rem;
-        color: #cbd5f5;
+        font-size: 0.9rem;
+        color: #bcb9ff;
+        padding: 0 4px;
       }
 
       #chat {
-        flex: 1;
-        background: rgba(15, 23, 42, 0.65);
+        height: 500px;
+        background: #0f0f11;
         border-radius: 12px;
-        border: 1px solid rgba(148, 163, 184, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         padding: 16px;
         overflow-y: auto;
+        overflow-x: hidden;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
       }
 
       .message {
         display: flex;
         align-items: flex-start;
-        gap: 10px;
-        padding: 10px 12px;
-        border-radius: 10px;
-        background: rgba(30, 41, 59, 0.85);
-        box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.15);
+        gap: 8px;
+        font-size: 0.93rem;
+        line-height: 1.4;
+        padding: 6px 8px;
+        word-break: break-word;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
       }
 
       .message .meta {
         display: flex;
         align-items: center;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 4px;
         font-size: 0.9rem;
-        color: rgba(226, 232, 240, 0.9);
+        color: rgba(226, 232, 240, 0.96);
       }
 
       .message .content {
-        margin-top: 4px;
-        font-size: 1rem;
-        line-height: 1.4;
-        color: #e2e8f0;
+        display: inline;
+        font-size: 0.95rem;
+        color: #efeff1;
       }
 
       .badges {
@@ -161,8 +181,8 @@
       }
 
       .platform-icon {
-        width: 20px;
-        height: 20px;
+        width: 16px;
+        height: 16px;
         background-size: contain;
         background-repeat: no-repeat;
         background-position: center;
@@ -178,13 +198,12 @@
       }
 
       .message.status {
-        background: rgba(45, 55, 72, 0.6);
-        color: rgba(203, 213, 225, 0.9);
+        color: rgba(203, 213, 225, 0.85);
+        font-style: italic;
       }
 
       .message.error {
-        background: rgba(185, 28, 28, 0.2);
-        color: #fecaca;
+        color: #f87171;
       }
 
       .hidden {
@@ -193,24 +212,26 @@
     </style>
   </head>
   <body>
-    <h1>Combined Twitch &amp; Kick Chat</h1>
-    <form id="channelForm">
-      <label>
-        Twitch Streamer
-        <input id="twitchInput" type="text" placeholder="e.g. summit1g" autocomplete="off" />
-      </label>
-      <label>
-        Kick Streamer
-        <input id="kickInput" type="text" placeholder="e.g. xqc" autocomplete="off" />
-      </label>
-      <div style="display: flex; gap: 12px; align-items: flex-end;">
-        <button type="submit">Connect</button>
-        <button type="button" class="secondary" id="disconnectBtn">Disconnect</button>
-      </div>
-    </form>
+    <div class="container">
+      <h1>Combined Twitch &amp; Kick Chat</h1>
+      <form id="channelForm">
+        <label>
+          Twitch Streamer
+          <input id="twitchInput" type="text" placeholder="e.g. summit1g" autocomplete="off" />
+        </label>
+        <label>
+          Kick Streamer
+          <input id="kickInput" type="text" placeholder="e.g. xqc" autocomplete="off" />
+        </label>
+        <div style="display: flex; gap: 12px; align-items: flex-end;">
+          <button type="submit">Connect</button>
+          <button type="button" class="secondary" id="disconnectBtn">Disconnect</button>
+        </div>
+      </form>
 
-    <div id="status">Waiting for connection…</div>
-    <div id="chat"></div>
+      <div id="status">Waiting for connection…</div>
+      <div id="chat"></div>
+    </div>
 
     <script>
       const form = document.getElementById("channelForm");
@@ -221,6 +242,7 @@
       const disconnectBtn = document.getElementById("disconnectBtn");
 
       let socket = null;
+      const maxMessages = 200;
 
       function setStatus(message) {
         statusEl.textContent = message;
@@ -231,6 +253,8 @@
       }
 
       function appendMessage(payload) {
+        const shouldStick =
+          chatEl.scrollTop >= chatEl.scrollHeight - chatEl.clientHeight - 40;
         const wrapper = document.createElement("div");
         wrapper.classList.add("message");
 
@@ -239,8 +263,7 @@
           icon.classList.add("platform-icon", payload.platform);
           wrapper.appendChild(icon);
 
-          const content = document.createElement("div");
-          const meta = document.createElement("div");
+          const meta = document.createElement("span");
           meta.classList.add("meta");
 
           const badges = document.createElement("span");
@@ -275,28 +298,46 @@
             meta.appendChild(badges);
           }
 
-          const username = document.createElement("strong");
-          username.textContent = payload.user;
+          const username = document.createElement("span");
+          username.classList.add("username");
+          username.textContent = `${payload.user}`;
+          username.style.color = pickUsernameColor(payload.user);
           meta.appendChild(username);
 
-          const platformTag = document.createElement("span");
-          platformTag.classList.add("platform-tag");
-          platformTag.textContent = `@${payload.platform}`;
-          meta.appendChild(platformTag);
-          const text = document.createElement("div");
+          const separator = document.createElement("span");
+          separator.textContent = ":";
+          separator.style.margin = "0 4px 0 2px";
+          meta.appendChild(separator);
+
+          wrapper.appendChild(meta);
+
+          const text = document.createElement("span");
           text.classList.add("content");
           text.textContent = payload.message;
 
-          content.appendChild(meta);
-          content.appendChild(text);
-          wrapper.appendChild(content);
+          wrapper.appendChild(text);
         } else {
           wrapper.classList.add(payload.type);
           wrapper.textContent = payload.message;
         }
 
         chatEl.appendChild(wrapper);
-        chatEl.scrollTop = chatEl.scrollHeight;
+
+        while (chatEl.children.length > maxMessages) {
+          const firstChild = chatEl.firstChild;
+          if (!firstChild) {
+            break;
+          }
+          const removedHeight = firstChild instanceof HTMLElement ? firstChild.offsetHeight : 0;
+          chatEl.removeChild(firstChild);
+          if (!shouldStick && removedHeight) {
+            chatEl.scrollTop = Math.max(0, chatEl.scrollTop - removedHeight);
+          }
+        }
+
+        if (shouldStick) {
+          chatEl.scrollTop = chatEl.scrollHeight;
+        }
       }
 
       function connect() {
@@ -351,6 +392,42 @@
         event.preventDefault();
         connect();
       });
+
+      const colorPalette = [
+        "#ff75e6",
+        "#ade55c",
+        "#fd7eff",
+        "#1f9bff",
+        "#f8d568",
+        "#c792ea",
+        "#ff955c",
+        "#4edfff",
+        "#f97316",
+        "#22d3ee",
+        "#34d399",
+        "#a855f7",
+        "#facc15",
+        "#fb7185",
+        "#e0e7ff",
+        "#bef264",
+      ];
+
+      const colorCache = new Map();
+
+      function pickUsernameColor(name) {
+        const key = name.toLowerCase();
+        if (colorCache.has(key)) {
+          return colorCache.get(key);
+        }
+        let hash = 0;
+        for (let i = 0; i < key.length; i += 1) {
+          hash = (hash << 5) - hash + key.charCodeAt(i);
+          hash |= 0;
+        }
+        const color = colorPalette[Math.abs(hash) % colorPalette.length];
+        colorCache.set(key, color);
+        return color;
+      }
 
       disconnectBtn.addEventListener("click", () => {
         if (socket) {
