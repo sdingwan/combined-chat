@@ -150,38 +150,6 @@
         margin: 0 2px;
       }
 
-      .badges {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        margin-right: 4px;
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0 6px;
-        border-radius: 999px;
-        font-size: 0.7rem;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-        background: rgba(148, 163, 184, 0.25);
-        color: #f8fafc;
-        line-height: 1.6;
-      }
-
-      .badge.icon-only {
-        padding: 0;
-        background: transparent;
-      }
-
-      .badge img {
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-      }
-
       .platform-tag {
         font-size: 0.75rem;
         opacity: 0.8;
@@ -350,42 +318,10 @@
           const meta = document.createElement("span");
           meta.classList.add("meta");
 
-          const badges = document.createElement("span");
-          badges.classList.add("badges");
-          const badgeList = Array.isArray(payload.badges) ? payload.badges : [];
-          badgeList.forEach((badge) => {
-            const id = badge?.id ?? "";
-            const label = badge?.label ?? id;
-            const icon = badge?.icon ?? "";
-            if (!label && !icon) {
-              return;
-            }
-            const badgeEl = document.createElement("span");
-            badgeEl.classList.add("badge");
-            badgeEl.title = label || id;
-            if (icon) {
-              const img = document.createElement("img");
-              img.src = icon;
-              img.alt = label || id || "badge";
-              img.referrerPolicy = "no-referrer";
-              badgeEl.appendChild(img);
-              badgeEl.classList.add("icon-only");
-            }
-            if (label && !icon) {
-              const text = document.createElement("span");
-              text.textContent = label;
-              badgeEl.appendChild(text);
-            }
-            badges.appendChild(badgeEl);
-          });
-          if (badges.childElementCount) {
-            meta.appendChild(badges);
-          }
-
           const username = document.createElement("span");
           username.classList.add("username");
           username.textContent = `${payload.user}`;
-          username.style.color = pickUsernameColor(payload.user);
+          username.style.color = resolveUsernameColor(payload);
           meta.appendChild(username);
 
           const separator = document.createElement("span");
@@ -554,7 +490,7 @@
         connect();
       });
 
-      const colorPalette = [
+      const fallbackPalette = [
         "#ff75e6",
         "#ade55c",
         "#fd7eff",
@@ -575,19 +511,71 @@
 
       const colorCache = new Map();
 
-      function pickUsernameColor(name) {
-        const key = name.toLowerCase();
+      function colorCacheKey(payload) {
+        const platform = String(payload.platform || "").toLowerCase();
+        const user = String(payload.user || "").toLowerCase();
+        return `${platform}:${user}`;
+      }
+
+      function resolveUsernameColor(payload) {
+        const key = colorCacheKey(payload);
+        const provided = payload.platform === "twitch" ? normalizeColor(payload.color) : null;
+        if (provided) {
+          colorCache.set(key, provided);
+          return provided;
+        }
         if (colorCache.has(key)) {
           return colorCache.get(key);
         }
+        const fallback = fallbackUsernameColor(payload.user || "");
+        colorCache.set(key, fallback);
+        return fallback;
+      }
+
+      function fallbackUsernameColor(name) {
+        const normalized = String(name || "").toLowerCase();
+        if (!normalized) {
+          return fallbackPalette[0];
+        }
         let hash = 0;
-        for (let i = 0; i < key.length; i += 1) {
-          hash = (hash << 5) - hash + key.charCodeAt(i);
+        for (let i = 0; i < normalized.length; i += 1) {
+          hash = (hash << 5) - hash + normalized.charCodeAt(i);
           hash |= 0;
         }
-        const color = colorPalette[Math.abs(hash) % colorPalette.length];
-        colorCache.set(key, color);
-        return color;
+        return fallbackPalette[Math.abs(hash) % fallbackPalette.length];
+      }
+
+      function normalizeColor(value) {
+        if (value == null) {
+          return null;
+        }
+        const raw = String(value).trim();
+        if (!raw) {
+          return null;
+        }
+        if (/^(rgb|hsl)a?\(/i.test(raw)) {
+          return raw;
+        }
+        if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
+          return raw;
+        }
+        if (/^#[0-9a-fA-F]{4}$/.test(raw)) {
+          const rgb = raw.slice(1, 4);
+          return `#${rgb[0]}${rgb[0]}${rgb[1]}${rgb[1]}${rgb[2]}${rgb[2]}`;
+        }
+        if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
+          return raw;
+        }
+        if (/^#[0-9a-fA-F]{8}$/.test(raw)) {
+          return `#${raw.slice(1, 7)}`;
+        }
+        if (/^0x[0-9a-fA-F]{6,8}$/i.test(raw)) {
+          return `#${raw.slice(2, 8)}`;
+        }
+        if (/^[0-9a-fA-F]{6,8}$/.test(raw)) {
+          return `#${raw.slice(0, 6)}`;
+        }
+        return null;
       }
 
       disconnectBtn.addEventListener("click", () => {

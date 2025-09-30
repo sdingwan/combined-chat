@@ -20,10 +20,6 @@ class TwitchChatClient:
         self.stop_event = stop_event
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
-        self._badge_cache: dict[str, dict[str, dict[str, str]]] = {}
-        self._badge_fetch_tasks: dict[str, asyncio.Task] = {}
-        self._loaded_badge_urls: set[str] = set()
-        self._channel_id: Optional[str] = None
 
     async def run(self) -> None:
         nickname = f"justinfan{secrets.randbelow(1_000_000):06d}"
@@ -34,7 +30,6 @@ class TwitchChatClient:
             await self._write_line("PASS SCHMOOPIIE")
             await self._write_line(f"NICK {nickname}")
             await self._write_line(f"JOIN #{self.channel}")
-            await self._load_badge_manifest("https://badges.twitch.tv/v1/badges/global/display")
             await self.queue.put(
                 {
                     "platform": "twitch",
@@ -98,11 +93,6 @@ class TwitchChatClient:
             tags_chunk, _, payload = payload.partition(" ")
             tags = self._parse_tags(tags_chunk[1:])
 
-        room_id = tags.get("room-id")
-        if room_id and room_id != self._channel_id:
-            self._channel_id = room_id
-            self._ensure_channel_badges(room_id)
-
         try:
             prefix, _, remainder = payload.partition(" PRIVMSG ")
             username = prefix.split("!")[0][1:]
@@ -112,8 +102,11 @@ class TwitchChatClient:
                 "type": "chat",
                 "user": username,
                 "message": text,
-                "badges": self._extract_badges(tags),
             }
+
+            color = tags.get("color")
+            if color:
+                message_payload["color"] = color
 
             emotes = self._parse_emotes(tags.get("emotes"), text)
             if emotes:
@@ -132,27 +125,6 @@ class TwitchChatClient:
             key, value = item.split("=", 1)
             tags[key] = value
         return tags
-
-    def _extract_badges(self, tags: dict[str, str]) -> list[dict[str, str]]:
-        badges_raw = tags.get("badges")
-        if not badges_raw:
-            return []
-
-        badges: list[dict[str, str]] = []
-        for entry in badges_raw.split(","):
-            badge_id, _, version = entry.partition("/")
-            if not badge_id:
-                continue
-            badge_data = self._lookup_badge_metadata(badge_id, version)
-            badge_payload: dict[str, str] = {"id": badge_id}
-            if badge_data.get("label"):
-                badge_payload["label"] = badge_data["label"]
-            if badge_data.get("icon"):
-                badge_payload["icon"] = badge_data["icon"]
-            elif "label" not in badge_payload:
-                badge_payload["label"] = badge_id.replace("_", " ").title()
-            badges.append(badge_payload)
-        return badges
 
     def _parse_emotes(self, emote_tag: Optional[str], message: str) -> list[dict[str, object]]:
         if not emote_tag:
@@ -185,64 +157,3 @@ class TwitchChatClient:
             {"id": emote_id, "name": name, "positions": positions}
             for (emote_id, name), positions in emote_map.items()
         ]
-
-    async def _load_badge_manifest(self, url: str) -> None:
-        if url in self._loaded_badge_urls:
-            return
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-            data = response.json()
-        except Exception as exc:  # pragma: no cover - network heavy
-            logger.debug("Failed to load badge manifest %s: %s", url, exc)
-            return
-
-        badge_sets = data.get("badge_sets", {})
-        for set_id, set_data in badge_sets.items():
-            versions = set_data.get("versions", {})
-            cache = self._badge_cache.setdefault(set_id, {})
-            for version_id, meta in versions.items():
-                cache[version_id] = {
-                    "label": meta.get("title") or meta.get("description") or set_id,
-                    "icon": meta.get("image_url_1x")
-                    or meta.get("image_url_2x")
-                    or meta.get("image_url_4x"),
-                }
-        self._loaded_badge_urls.add(url)
-
-    def _ensure_channel_badges(self, channel_id: str) -> None:
-        url = f"https://badges.twitch.tv/v1/badges/channels/{channel_id}/display"
-        if url in self._loaded_badge_urls or url in self._badge_fetch_tasks:
-            return
-        loop = asyncio.get_running_loop()
-
-        async def loader() -> None:
-            await self._load_badge_manifest(url)
-
-        task = loop.create_task(loader())
-        self._badge_fetch_tasks[url] = task
-
-        def _cleanup(_: asyncio.Task) -> None:
-            self._badge_fetch_tasks.pop(url, None)
-
-        task.add_done_callback(_cleanup)
-
-    def _lookup_badge_metadata(self, badge_id: str, version: str) -> dict[str, str]:
-        cache = self._badge_cache.get(badge_id, {})
-        badge = cache.get(version)
-        if badge:
-            return badge
-
-        fallback = {
-            "broadcaster": "Broadcaster",
-            "moderator": "Mod",
-            "vip": "VIP",
-            "subscriber": "Sub",
-            "founder": "Founder",
-            "staff": "Staff",
-            "partner": "Partner",
-            "premium": "Turbo",
-        }
-        label = fallback.get(badge_id, badge_id.replace("_", " ").title())
-        return {"label": label}
