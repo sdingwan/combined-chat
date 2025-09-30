@@ -107,13 +107,19 @@ class TwitchChatClient:
             prefix, _, remainder = payload.partition(" PRIVMSG ")
             username = prefix.split("!")[0][1:]
             _, _, text = remainder.partition(" :")
-            return {
+            message_payload = {
                 "platform": "twitch",
                 "type": "chat",
                 "user": username,
                 "message": text,
                 "badges": self._extract_badges(tags),
             }
+
+            emotes = self._parse_emotes(tags.get("emotes"), text)
+            if emotes:
+                message_payload["emotes"] = emotes
+
+            return message_payload
         except (IndexError, ValueError):
             logger.debug("Unable to parse Twitch PRIVMSG: %s", payload)
             return None
@@ -147,6 +153,38 @@ class TwitchChatClient:
                 badge_payload["label"] = badge_id.replace("_", " ").title()
             badges.append(badge_payload)
         return badges
+
+    def _parse_emotes(self, emote_tag: Optional[str], message: str) -> list[dict[str, object]]:
+        if not emote_tag:
+            return []
+
+        emote_map: dict[tuple[str, str], list[tuple[int, int]]] = {}
+        for entry in emote_tag.split("/"):
+            emote_id, _, positions = entry.partition(":")
+            if not emote_id or not positions:
+                continue
+            slices: list[tuple[int, int]] = []
+            for span in positions.split(","):
+                start_str, _, end_str = span.partition("-")
+                if not start_str or not end_str:
+                    continue
+                try:
+                    start, end = int(start_str), int(end_str)
+                except ValueError:
+                    continue
+                if start < 0 or end < start or end >= len(message):
+                    continue
+                slices.append((start, end))
+            if not slices:
+                continue
+            name = message[slices[0][0] : slices[0][1] + 1]
+            key = (emote_id, name)
+            emote_map.setdefault(key, []).extend(slices)
+
+        return [
+            {"id": emote_id, "name": name, "positions": positions}
+            for (emote_id, name), positions in emote_map.items()
+        ]
 
     async def _load_badge_manifest(self, url: str) -> None:
         if url in self._loaded_badge_urls:
