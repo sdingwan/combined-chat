@@ -96,11 +96,12 @@ class TwitchChatClient:
         try:
             prefix, _, remainder = payload.partition(" PRIVMSG ")
             username = prefix.split("!")[0][1:]
+            display_name = tags.get("display-name") or username
             _, _, text = remainder.partition(" :")
             message_payload = {
                 "platform": "twitch",
                 "type": "chat",
-                "user": username,
+                "user": display_name,
                 "message": text,
             }
 

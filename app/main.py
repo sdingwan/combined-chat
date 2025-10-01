@@ -7,8 +7,11 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.auth.routes import router as auth_router
 from app.chat_sources.kick import KickChatClient
 from app.chat_sources.twitch import TwitchChatClient
+from app.db import init_db
+from app.routes.chat import router as chat_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("combined_chat")
@@ -17,6 +20,13 @@ app = FastAPI(title="Combined Twitch & Kick Chat")
 
 static_dir = Path(__file__).resolve().parent.parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+app.include_router(auth_router)
+app.include_router(chat_router)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    await init_db()
 
 
 @app.get("/")

@@ -2,3 +2,6 @@ fastapi
 uvicorn[standard]
 httpx
 websockets
+sqlalchemy[asyncio]
+aiosqlite
+pydantic-settings

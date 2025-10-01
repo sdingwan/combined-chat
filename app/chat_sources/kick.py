@@ -124,28 +124,35 @@ class KickChatClient:
 
     async def _fetch_chatroom_id(self) -> int:
         slug = self.channel.replace("_", "-")
-        endpoint = f"https://api.stream-stuff.com/kickchatroomid.php?streamer={slug}"
+        endpoint = f"https://kick.com/api/v2/channels/{slug}"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json",
+        }
 
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(endpoint, headers={"Accept": "application/json"})
+            response = await client.get(endpoint, headers=headers)
 
         if response.status_code == 404:
-            raise RuntimeError(f"Kick channel '{slug}' not found via Stream Stuff API")
+            raise RuntimeError(f"Kick channel '{slug}' not found")
         if response.status_code != 200:
             raise RuntimeError(
-                f"Stream Stuff API returned status {response.status_code} for channel '{slug}'"
+                f"Kick channel lookup returned status {response.status_code} for '{slug}'"
             )
 
         try:
             payload = response.json()
         except json.JSONDecodeError as exc:
-            raise RuntimeError("Stream Stuff API response was not valid JSON") from exc
+            raise RuntimeError("Kick channel response was not valid JSON") from exc
 
-        chatroom_id = payload.get("chatroom_id")
-        if chatroom_id is None:
-            raise RuntimeError("Stream Stuff API response missing 'chatroom_id'")
+        chatroom = payload.get("chatroom") if isinstance(payload, dict) else None
+        if not isinstance(chatroom, dict) or "id" not in chatroom:
+            raise RuntimeError("Kick channel response missing chatroom id")
 
-        return int(chatroom_id)
+        return int(chatroom["id"])
 
     def _decode_pusher_payload(self, raw: str) -> Optional[dict]:
         try:

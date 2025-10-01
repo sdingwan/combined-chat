@@ -35,6 +35,27 @@
         gap: 16px;
       }
 
+      .auth-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: #18181b;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .auth-status {
+        font-size: 0.95rem;
+        color: rgba(207, 214, 255, 0.92);
+      }
+
+      .auth-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
       h1 {
         margin: 0;
         font-size: 1.6rem;
@@ -92,6 +113,13 @@
       button:hover {
         transform: translateY(-1px);
         box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
       }
 
       #status {
@@ -195,6 +223,8 @@
         font-size: 0.95rem;
         outline: none;
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        flex: 1;
+        min-width: 200px;
       }
 
       #messageInput:focus {
@@ -210,6 +240,21 @@
         display: flex;
         gap: 8px;
         align-items: center;
+        flex-wrap: wrap;
+      }
+
+      #platformSelect {
+        min-width: 160px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: rgba(15, 23, 42, 0.8);
+        color: inherit;
+      }
+
+      #platformSelect:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
       }
 
       #sendButton {
@@ -240,6 +285,14 @@
   <body>
     <div class="container">
       <h1>Combined Twitch &amp; Kick Chat</h1>
+      <div class="auth-panel">
+        <div id="authStatus" class="auth-status">Checking authentication…</div>
+        <div class="auth-actions">
+          <button id="twitchLoginBtn" type="button">Login with Twitch</button>
+          <button id="kickLoginBtn" type="button">Login with Kick</button>
+          <button id="logoutBtn" type="button" class="secondary" disabled>Logout</button>
+        </div>
+      </div>
       <form id="channelForm">
         <label>
           Twitch Streamer
@@ -259,6 +312,9 @@
       <div id="chat"></div>
       
       <div class="message-input-container">
+        <select id="platformSelect" disabled>
+          <option value="">Select platform</option>
+        </select>
         <input 
           id="messageInput" 
           type="text" 
@@ -279,25 +335,139 @@
       const disconnectBtn = document.getElementById("disconnectBtn");
       const messageInput = document.getElementById("messageInput");
       const sendButton = document.getElementById("sendButton");
+      const platformSelect = document.getElementById("platformSelect");
+      const authStatusEl = document.getElementById("authStatus");
+      const twitchLoginBtn = document.getElementById("twitchLoginBtn");
+      const kickLoginBtn = document.getElementById("kickLoginBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
 
       let socket = null;
+      let connectionReady = false;
+      let authState = { authenticated: false, accounts: [], user: null };
       const maxMessages = 200;
 
       function setStatus(message) {
         statusEl.textContent = message;
       }
 
+      function hasAccount(platform) {
+        return (
+          Array.isArray(authState.accounts) &&
+          authState.accounts.some((account) => account.platform === platform)
+        );
+      }
+
+      function buildPlatformOptions() {
+        const options = [];
+        const twitchChannel = twitchInput.value.trim();
+        if (twitchChannel && hasAccount("twitch")) {
+          options.push({ value: "twitch", label: `Twitch (#${twitchChannel})` });
+        }
+        const kickChannel = kickInput.value.trim();
+        if (kickChannel && hasAccount("kick")) {
+          options.push({ value: "kick", label: `Kick (${kickChannel})` });
+        }
+        return options;
+      }
+
+      function updateMessageControls() {
+        const options = buildPlatformOptions();
+        platformSelect.innerHTML = "";
+        if (!options.length) {
+          const placeholder = document.createElement("option");
+          placeholder.value = "";
+          placeholder.textContent = connectionReady
+            ? "Link accounts to send"
+            : "Connect to enable messaging";
+          platformSelect.appendChild(placeholder);
+        } else {
+          options.forEach((option, index) => {
+            const optionEl = document.createElement("option");
+            optionEl.value = option.value;
+            optionEl.textContent = option.label;
+            if (index === 0) {
+              optionEl.selected = true;
+            }
+            platformSelect.appendChild(optionEl);
+          });
+        }
+
+        platformSelect.disabled = !connectionReady || !options.length;
+        const canSend = connectionReady && options.length > 0;
+        messageInput.disabled = !canSend;
+        sendButton.disabled = !canSend;
+
+        if (!canSend) {
+          messageInput.value = "";
+        }
+
+        if (!connectionReady) {
+          messageInput.placeholder = "Connect to a chat to send messages";
+        } else if (!options.length) {
+          messageInput.placeholder = "Link your account to send messages";
+        } else {
+          messageInput.placeholder = "Type your message here...";
+        }
+      }
+
+      function renderAuthState() {
+        if (authState && authState.authenticated) {
+          const displayName =
+            (authState.user && (authState.user.display_name || `User #${authState.user.id}`)) ||
+            "Authenticated";
+          const linked = [
+            hasAccount("twitch") ? "Twitch ✓" : "Twitch ×",
+            hasAccount("kick") ? "Kick ✓" : "Kick ×",
+          ];
+          authStatusEl.textContent = `${displayName} — Linked: ${linked.join(" · ")}`;
+          logoutBtn.disabled = false;
+        } else {
+          authStatusEl.textContent = "Not logged in. Sign in to send messages.";
+          logoutBtn.disabled = true;
+        }
+
+        const twitchLinked = hasAccount("twitch");
+        twitchLoginBtn.textContent = twitchLinked ? "Twitch Linked" : "Login with Twitch";
+        twitchLoginBtn.disabled = twitchLinked;
+
+        const kickLinked = hasAccount("kick");
+        kickLoginBtn.textContent = kickLinked ? "Kick Linked" : "Login with Kick";
+        kickLoginBtn.disabled = kickLinked;
+
+        updateMessageControls();
+      }
+
+      async function refreshAuthStatus() {
+        try {
+          const response = await fetch("/auth/status", { credentials: "same-origin" });
+          if (!response.ok) {
+            throw new Error(`Status ${response.status}`);
+          }
+          const data = await response.json();
+          if (data && typeof data === "object") {
+            authState = {
+              authenticated: Boolean(data.authenticated),
+              accounts: Array.isArray(data.accounts) ? data.accounts : [],
+              user: data.user || null,
+            };
+          } else {
+            authState = { authenticated: false, accounts: [], user: null };
+          }
+        } catch (err) {
+          console.warn("Failed to load auth status", err);
+          authState = { authenticated: false, accounts: [], user: null };
+        }
+        renderAuthState();
+      }
+
       function enableMessageInput() {
-        messageInput.disabled = false;
-        sendButton.disabled = false;
-        messageInput.placeholder = "Type your message here...";
+        connectionReady = true;
+        updateMessageControls();
       }
 
       function disableMessageInput() {
-        messageInput.disabled = true;
-        sendButton.disabled = true;
-        messageInput.value = "";
-        messageInput.placeholder = "Connect to a chat to send messages";
+        connectionReady = false;
+        updateMessageControls();
       }
 
       function clearChat() {
@@ -490,6 +660,37 @@
         connect();
       });
 
+      function currentRedirectPath() {
+        return encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+      }
+
+      twitchLoginBtn.addEventListener("click", () => {
+        if (twitchLoginBtn.disabled) {
+          return;
+        }
+        window.location.href = `/auth/twitch/login?redirect_path=${currentRedirectPath()}`;
+      });
+
+      kickLoginBtn.addEventListener("click", () => {
+        if (kickLoginBtn.disabled) {
+          return;
+        }
+        window.location.href = `/auth/kick/login?redirect_path=${currentRedirectPath()}`;
+      });
+
+      logoutBtn.addEventListener("click", async () => {
+        try {
+          await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+        } catch (err) {
+          console.warn("Logout failed", err);
+        }
+        authState = { authenticated: false, accounts: [], user: null };
+        await refreshAuthStatus();
+      });
+
+      twitchInput.addEventListener("input", updateMessageControls);
+      kickInput.addEventListener("input", updateMessageControls);
+
       const fallbackPalette = [
         "#ff75e6",
         "#ade55c",
@@ -590,6 +791,7 @@
       // Message input event listeners
       messageInput.addEventListener("keypress", (event) => {
         if (event.key === "Enter" && !messageInput.disabled) {
+          event.preventDefault();
           sendMessage();
         }
       });
@@ -600,14 +802,59 @@
         }
       });
 
-      function sendMessage() {
+      async function sendMessage() {
+        const platform = platformSelect.value;
         const message = messageInput.value.trim();
-        if (message && socket && socket.readyState === WebSocket.OPEN) {
-          // TODO: Implement message sending logic
-          console.log("Sending message:", message);
+
+        if (!platform) {
+          setStatus("Select a platform to send messages.");
+          return;
+        }
+        if (!message) {
+          return;
+        }
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          setStatus("WebSocket is not connected.");
+          return;
+        }
+
+        const channel = platform === "twitch" ? twitchInput.value.trim() : kickInput.value.trim();
+        if (!channel) {
+          setStatus(`Enter a ${platform} channel before sending.`);
+          return;
+        }
+
+        try {
+          const response = await fetch("/chat/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ platform, channel, message }),
+          });
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            const detail =
+              errorBody && errorBody.detail
+                ? errorBody.detail
+                : response.statusText || "Unknown error";
+            const detailText =
+              typeof detail === "string" ? detail : JSON.stringify(detail);
+            setStatus(`Failed to send: ${detailText}`);
+            return;
+          }
+
           messageInput.value = "";
+          const prettyPlatform = `${platform.charAt(0).toUpperCase()}${platform.slice(1)}`;
+          setStatus(`Message sent via ${prettyPlatform}.`);
+        } catch (err) {
+          console.error("Failed to send chat message", err);
+          setStatus("Network error while sending chat message.");
         }
       }
+
+      updateMessageControls();
+      refreshAuthStatus();
     </script>
   </body>
 </html>

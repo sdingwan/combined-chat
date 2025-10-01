@@ -8,6 +8,7 @@ A real-time chat aggregator that combines Twitch and Kick chat streams into a si
 - **Real-Time Updates**: Live chat messages with WebSocket connections
 - **Modern UI**: Clean, responsive interface with dark theme
 - **Badge Support**: Display user badges and platform indicators
+- **Account Login**: OAuth sign-in for Twitch and Kick with persistent tokens
 - **Easy Setup**: Simple configuration with streamer names
 
 ## Screenshots
@@ -24,6 +25,7 @@ The application provides a unified chat interface where you can:
 
 - Python 3.8 or higher
 - pip (Python package installer)
+- PostgreSQL 13+ (running instance reachable via `DATABASE_URL`)
 
 ### Setup
 
@@ -44,29 +46,50 @@ The application provides a unified chat interface where you can:
    pip install -r requirements.txt
    ```
 
-4. **Run the application**
+4. **Configure environment**
+   Create a `.env` file (or export the variables) with at least:
+   ```env
+   DATABASE_URL=sqlite+aiosqlite:///data/app.db
+   SESSION_SECRET=change_me
+   TWITCH_CLIENT_ID=your_twitch_client_id
+   TWITCH_CLIENT_SECRET=your_twitch_client_secret
+   TWITCH_REDIRECT_URI=http://localhost:8000/auth/twitch/callback
+   KICK_CLIENT_ID=your_kick_client_id
+   KICK_CLIENT_SECRET=your_kick_client_secret
+   KICK_REDIRECT_URI=http://localhost:8000/auth/kick/callback
+   KICK_SCOPES=user:read channel:read chat:read chat:write
+   ```
+   Adjust values to match your deployed URLs. The redirect URIs must match the ones registered with each provider. The default SQLite database file will be created under `data/app.db` relative to the project root.
+
+5. **Run the application**
    ```bash
    uvicorn app.main:app --reload
    ```
 
-5. **Open your browser**
+6. **Open your browser**
    Navigate to `http://localhost:8000`
 
 ## Usage
 
 1. **Start the server** using the command above
 2. **Open the web interface** in your browser
-3. **Enter streamer names**:
+3. **Authenticate** with the platforms you want to post to by clicking **Login with Twitch** and/or **Login with Kick**. Successful logins store tokens in Postgres.
+4. **Enter streamer names**:
    - Twitch: Enter the streamer's username (e.g., `summit1g`)
    - Kick: Enter the streamer's username (e.g., `xqc`)
    - You can connect to one or both platforms
-4. **Click Connect** to start receiving chat messages
-5. **View real-time messages** from both platforms in a unified feed
+5. **Click Connect** to start receiving chat messages
+6. **Send messages** from the combined input using the linked platform selector. Messages are posted via your authenticated account.
 
 ## API Endpoints
 
 - `GET /` - Serves the main web interface
 - `WebSocket /ws` - Real-time chat message stream
+- `GET /auth/status` - Returns the currently authenticated user and linked accounts
+- `GET /auth/{platform}/login` - Starts an OAuth flow for `twitch` or `kick`
+- `GET /auth/{platform}/callback` - OAuth redirect handler storing tokens
+- `POST /auth/logout` - Ends the current session
+- `POST /chat/send` - Sends a chat message using the linked account
 
 ### WebSocket Protocol
 
@@ -85,7 +108,16 @@ Send a JSON message to subscribe to chat streams:
 combined-chat/
 ├── app/
 │   ├── __init__.py
+│   ├── config.py               # Environment configuration
+│   ├── db.py                   # Async SQLAlchemy engine/session
+│   ├── models.py               # ORM models for users, sessions, tokens
 │   ├── main.py                 # FastAPI application and WebSocket handling
+│   ├── auth/
+│   │   ├── __init__.py
+│   │   ├── session.py          # Session cookie helpers
+│   │   └── state.py            # OAuth state persistence
+│   ├── routes/
+│   │   └── chat.py             # REST endpoint for sending chat messages
 │   └── chat_sources/
 │       ├── __init__.py
 │       ├── twitch.py           # Twitch chat client
@@ -102,6 +134,8 @@ combined-chat/
 - **uvicorn**: ASGI server for running the application
 - **httpx**: HTTP client for API requests
 - **websockets**: WebSocket client for real-time communication
+- **SQLAlchemy**: Async ORM for managing PostgreSQL persistence
+- **asyncpg**: PostgreSQL driver used by SQLAlchemy's async engine
 
 ## Development
 
@@ -114,6 +148,11 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ### Code Structure
 
 - `app/main.py`: Main FastAPI application with WebSocket endpoint
+- `app/config.py`: Centralised environment configuration
+- `app/db.py`: Async SQLAlchemy engine and session factory
+- `app/models.py`: ORM models for users, sessions, and OAuth accounts
+- `app/auth/`: Session helpers and OAuth state storage
+- `app/routes/chat.py`: REST endpoint for sending chat messages
 - `app/chat_sources/twitch.py`: Twitch IRC chat client implementation
 - `app/chat_sources/kick.py`: Kick WebSocket chat client implementation
 - `static/index.html`: Frontend with vanilla JavaScript
@@ -137,6 +176,7 @@ This project is open source and available under the [MIT License](LICENSE).
 1. **Port already in use**: Change the port with `--port 8001`
 2. **WebSocket connection failed**: Ensure the server is running and accessible
 3. **Chat not loading**: Check that streamer names are correct and channels are live
+4. **Kick OAuth issues**: Kick's public OAuth and chat APIs are still evolving. Confirm your client credentials and endpoints match the latest Kick developer documentation.
 
 ### Getting Help
 
