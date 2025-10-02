@@ -8,6 +8,17 @@
       :root {
         color-scheme: dark light;
         font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+        --twitch-purple: #9146ff;
+        --twitch-shadow: rgba(145, 70, 255, 0.35);
+        --kick-green: #53fc18;
+        --kick-shadow: rgba(83, 252, 24, 0.35);
+        --kick-text: #041400;
+        --danger-red: #ef4444;
+        --danger-shadow: rgba(239, 68, 68, 0.35);
+        --connect-blue: #2563eb;
+        --connect-shadow: rgba(37, 99, 235, 0.35);
+        --neutral-gray: #475569;
+        --neutral-shadow: rgba(71, 85, 105, 0.35);
       }
 
       html,
@@ -17,7 +28,7 @@
 
       body {
         margin: 0;
-        padding: 20px;
+        padding: 16px;
         background: #0e0e10;
         color: #efeff1;
         min-height: 100vh;
@@ -32,28 +43,28 @@
         max-width: 800px;
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 12px;
       }
 
       .auth-panel {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
         background: #18181b;
-        padding: 12px;
-        border-radius: 10px;
+        padding: 8px 10px;
+        border-radius: 8px;
         border: 1px solid rgba(255, 255, 255, 0.05);
       }
 
       .auth-status {
-        font-size: 0.95rem;
+        font-size: 0.9rem;
         color: rgba(207, 214, 255, 0.92);
       }
 
       .auth-actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 6px;
       }
 
       h1 {
@@ -66,53 +77,66 @@
       form {
         display: flex;
         flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 8px;
+        gap: 10px;
+        margin-bottom: 6px;
         background: #18181b;
-        padding: 12px;
-        border-radius: 10px;
+        padding: 8px 10px;
+        border-radius: 8px;
         border: 1px solid rgba(255, 255, 255, 0.05);
       }
 
       label {
         display: flex;
         flex-direction: column;
-        font-size: 0.9rem;
-        gap: 6px;
+        font-size: 0.85rem;
+        gap: 4px;
         min-width: 220px;
       }
 
       input[type="text"] {
-        padding: 10px 12px;
+        padding: 8px 11px;
         border-radius: 8px;
         border: 1px solid rgba(148, 163, 184, 0.3);
         background: rgba(15, 23, 42, 0.8);
         color: inherit;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
       }
 
       input[type="text"]:focus {
-        outline: 2px solid rgba(79, 70, 229, 0.7);
-        outline-offset: 2px;
+        outline: none;
+        border-color: rgba(99, 102, 241, 0.6);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+      }
+
+      #twitchInput:hover,
+      #twitchInput:focus {
+        border-color: var(--twitch-purple);
+        box-shadow: 0 0 0 3px rgba(145, 70, 255, 0.2);
+      }
+
+      #kickInput:hover,
+      #kickInput:focus {
+        border-color: var(--kick-green);
+        box-shadow: 0 0 0 3px rgba(83, 252, 24, 0.2);
       }
 
       button {
-        padding: 9px 16px;
+        --btn-bg: #6366f1;
+        --btn-fg: #ffffff;
+        --btn-shadow: rgba(99, 102, 241, 0.35);
+        padding: 8px 14px;
         border-radius: 8px;
         border: none;
-        background: #9146ff;
-        color: white;
+        background: var(--btn-bg);
+        color: var(--btn-fg);
         font-weight: 600;
         cursor: pointer;
         transition: transform 0.1s ease, box-shadow 0.1s ease;
       }
 
-      button.secondary {
-        background: #334155;
-      }
-
       button:hover {
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+        box-shadow: 0 4px 12px var(--btn-shadow, rgba(99, 102, 241, 0.35));
       }
 
       button:disabled {
@@ -120,6 +144,32 @@
         cursor: not-allowed;
         transform: none;
         box-shadow: none;
+      }
+
+      .button--twitch {
+        --btn-bg: var(--twitch-purple);
+        --btn-shadow: var(--twitch-shadow);
+      }
+
+      .button--kick {
+        --btn-bg: var(--kick-green);
+        --btn-fg: var(--kick-text);
+        --btn-shadow: var(--kick-shadow);
+      }
+
+      .button--danger {
+        --btn-bg: var(--danger-red);
+        --btn-shadow: var(--danger-shadow);
+      }
+
+      .button--connect {
+        --btn-bg: var(--connect-blue);
+        --btn-shadow: var(--connect-shadow);
+      }
+
+      .button--neutral {
+        --btn-bg: var(--neutral-gray);
+        --btn-shadow: var(--neutral-shadow);
       }
 
       #status {
@@ -130,7 +180,7 @@
       }
 
       #chat {
-        height: 600px;
+        height: clamp(480px, 70vh, 820px);
         background: #0f0f11;
         border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -330,7 +380,7 @@
 
       #messageInput {
         width: 100%;
-        padding: 12px 16px;
+        padding: 10px 14px;
         border-radius: 8px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         background: rgba(15, 23, 42, 0.8);
@@ -353,14 +403,14 @@
 
       .message-input-container {
         display: flex;
-        gap: 8px;
+        gap: 6px;
         align-items: center;
         flex-wrap: wrap;
       }
 
       #platformSelect {
-        min-width: 160px;
-        padding: 10px 12px;
+        min-width: 150px;
+        padding: 9px 11px;
         border-radius: 8px;
         border: 1px solid rgba(148, 163, 184, 0.3);
         background: rgba(15, 23, 42, 0.8);
@@ -374,23 +424,13 @@
 
       #sendButton {
         padding: 12px 20px;
-        border-radius: 8px;
-        border: none;
-        background: #6366f1;
-        color: white;
-        font-weight: 600;
-        cursor: pointer;
-        transition: transform 0.1s ease, box-shadow 0.1s ease;
         white-space: nowrap;
       }
 
-      #sendButton:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
-      }
-
       #sendButton:disabled {
-        background: #4b5563;
+        --btn-bg: #4b5563;
+        --btn-fg: #d1d5db;
+        --btn-shadow: rgba(75, 85, 99, 0.0);
         cursor: not-allowed;
         transform: none;
         box-shadow: none;
@@ -403,9 +443,9 @@
       <div class="auth-panel">
         <div id="authStatus" class="auth-status">Checking authentication…</div>
         <div class="auth-actions">
-          <button id="twitchLoginBtn" type="button">Login with Twitch</button>
-          <button id="kickLoginBtn" type="button">Login with Kick</button>
-          <button id="logoutBtn" type="button" class="secondary" disabled>Logout</button>
+          <button id="twitchLoginBtn" type="button" class="button--twitch">Login with Twitch</button>
+          <button id="kickLoginBtn" type="button" class="button--kick">Login with Kick</button>
+          <button id="logoutBtn" type="button" class="button--danger" disabled>Logout</button>
         </div>
       </div>
       <form id="channelForm">
@@ -418,8 +458,8 @@
           <input id="kickInput" type="text" placeholder="e.g. xqc" autocomplete="off" />
         </label>
         <div style="display: flex; gap: 12px; align-items: flex-end;">
-          <button type="submit">Connect</button>
-          <button type="button" class="secondary" id="disconnectBtn">Disconnect</button>
+          <button type="submit" class="button--connect">Connect</button>
+          <button type="button" class="button--danger" id="disconnectBtn">Disconnect</button>
         </div>
       </form>
 
@@ -437,7 +477,7 @@
           autocomplete="off"
           disabled
         />
-        <button id="sendButton" disabled>Send</button>
+        <button id="sendButton" class="button--neutral" disabled>Send</button>
       </div>
     </div>
 
@@ -494,6 +534,7 @@
         untimeout: "completed for",
       };
       let moderationMenuTarget = null;
+      const sendButtonPlatformClasses = ["button--twitch", "button--kick", "button--neutral"];
 
       const moderationMenu = document.createElement("div");
       moderationMenu.id = "moderationMenu";
@@ -524,6 +565,18 @@
         return options;
       }
 
+      function applySendButtonStyle(platform) {
+        sendButton.classList.remove(...sendButtonPlatformClasses);
+        const className =
+          platform === "twitch"
+            ? "button--twitch"
+            : platform === "kick"
+              ? "button--kick"
+              : "button--neutral";
+        sendButton.classList.add(className);
+        sendButton.dataset.platform = platform || "";
+      }
+
       function updateMessageControls() {
         const options = buildPlatformOptions();
         platformSelect.innerHTML = "";
@@ -550,6 +603,8 @@
         const canSend = connectionReady && options.length > 0;
         messageInput.disabled = !canSend;
         sendButton.disabled = !canSend;
+        const selectedPlatform = !platformSelect.disabled ? platformSelect.value : "";
+        applySendButtonStyle(selectedPlatform);
 
         if (!canSend) {
           messageInput.value = "";
@@ -847,6 +902,12 @@
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
           hideModerationMenu();
+        }
+      });
+
+      platformSelect.addEventListener("change", () => {
+        if (!platformSelect.disabled) {
+          applySendButtonStyle(platformSelect.value);
         }
       });
 
@@ -1279,6 +1340,7 @@
         }
       }
 
+      applySendButtonStyle("");
       updateMessageControls();
       refreshAuthStatus();
     </script>

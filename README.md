@@ -81,6 +81,29 @@ The application provides a unified chat interface where you can:
 5. **Click Connect** to start receiving chat messages
 6. **Send messages** from the combined input using the linked platform selector. Messages are posted via your authenticated account.
 
+## Deploying to Railway
+
+1. **Create the service**
+   - Install the [Railway CLI](https://docs.railway.app/develop/cli) and run `railway init` inside this repository, or create a new project from the Railway dashboard and connect it to your GitHub repo.
+   - Railway detects `requirements.txt` and uses the provided `Procfile` to launch `uvicorn`.
+
+2. **Provision a PostgreSQL database**
+   - Add the PostgreSQL plugin from the *Add Resources* menu.
+   - Copy the generated connection string and set it as `DATABASE_URL`. The helper in `app/db.py` automatically upgrades values like `postgres://` to the async `postgresql+asyncpg://` form required by SQLAlchemy.
+
+3. **Configure environment variables** (under *Variables*)
+   - `SESSION_SECRET` – a long random string
+   - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`
+   - `KICK_CLIENT_ID`, `KICK_CLIENT_SECRET`
+   - `TWITCH_REDIRECT_URI` and `KICK_REDIRECT_URI` should match your Railway domain, e.g. `https://your-service.up.railway.app/auth/twitch/callback`
+   - `KICK_SCOPES` (optional override)
+
+4. **Deploy**
+   - Push to your connected branch or run `railway up` with the CLI. Railway installs dependencies, runs the build, and starts `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+   - Once deployed, visit the public Railway URL and complete the OAuth setup with your provider dashboards using the same redirect URIs you configured above.
+
+The `init_db` startup hook automatically creates tables on first boot as long as the database credentials are set.
+
 ## API Endpoints
 
 - `GET /` - Serves the main web interface
