@@ -160,11 +160,22 @@
       .message .meta {
         display: flex;
         align-items: center;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         gap: 4px;
         font-size: 0.9rem;
         color: rgba(226, 232, 240, 0.96);
+      }
+
+      .message .meta .name-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
         flex-shrink: 0;
+      }
+
+      .message .meta .separator {
+        opacity: 0.85;
       }
 
       .message .meta .badges {
@@ -195,6 +206,15 @@
         margin: 0 2px;
       }
 
+      .message .username {
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .message .username:hover {
+        text-decoration: underline;
+      }
+
       .platform-tag {
         font-size: 0.75rem;
         opacity: 0.8;
@@ -215,6 +235,46 @@
 
       .platform-icon.kick {
         background-image: url('https://kick.com/favicon.ico');
+      }
+
+      .moderation-menu {
+        position: fixed;
+        background: #1f1f23;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 180px;
+        z-index: 1000;
+        box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+      }
+
+      .moderation-menu__title {
+        font-size: 0.75rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        opacity: 0.7;
+        padding: 0 2px 4px;
+      }
+
+      .moderation-menu button {
+        all: unset;
+        padding: 8px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        color: #efeff1;
+        font-size: 0.9rem;
+      }
+
+      .moderation-menu button:hover {
+        background: rgba(99, 102, 241, 0.2);
+      }
+
+      .moderation-menu button:focus-visible {
+        outline: 2px solid rgba(99, 102, 241, 0.6);
+        outline-offset: 2px;
       }
 
       .message.status {
@@ -362,6 +422,33 @@
       let connectionReady = false;
       let authState = { authenticated: false, accounts: [], user: null };
       const maxMessages = 50;
+      const currentChannels = { twitch: "", kick: "" };
+      const moderationOptions = [
+        { action: "ban", label: "Ban" },
+        { action: "unban", label: "Unban" },
+        { action: "timeout", label: "Timeout 10m", duration: 10 * 60 },
+        { action: "timeout", label: "Timeout 1h", duration: 60 * 60 },
+        { action: "timeout", label: "Timeout 24h", duration: 24 * 60 * 60 },
+        { action: "untimeout", label: "Remove Timeout" },
+      ];
+      const moderationActionLabels = {
+        ban: "Ban",
+        timeout: "Timeout",
+        unban: "Unban",
+        untimeout: "Timeout removal",
+      };
+      const moderationSuccessSuffix = {
+        ban: "applied to",
+        timeout: "applied to",
+        unban: "completed for",
+        untimeout: "completed for",
+      };
+      let moderationMenuTarget = null;
+
+      const moderationMenu = document.createElement("div");
+      moderationMenu.id = "moderationMenu";
+      moderationMenu.classList.add("moderation-menu", "hidden");
+      document.body.appendChild(moderationMenu);
 
       function setStatus(message) {
         statusEl.textContent = message;
@@ -491,11 +578,219 @@
         chatEl.innerHTML = "";
       }
 
+      function hideModerationMenu() {
+        if (moderationMenuTarget) {
+          moderationMenuTarget = null;
+        }
+        moderationMenu.style.visibility = "";
+        moderationMenu.classList.add("hidden");
+        moderationMenu.innerHTML = "";
+      }
+
+      function showModerationMenu(rect, metadata) {
+        moderationMenuTarget = metadata;
+        moderationMenu.innerHTML = "";
+
+        const title = document.createElement("div");
+        title.classList.add("moderation-menu__title");
+        const platformLabel = metadata.platform === "twitch" ? "Twitch" : "Kick";
+        title.textContent = `${platformLabel} • ${metadata.username}`;
+        moderationMenu.appendChild(title);
+
+        moderationOptions.forEach((option) => {
+          const optionButton = document.createElement("button");
+          optionButton.type = "button";
+          optionButton.textContent = option.label;
+          optionButton.dataset.action = option.action;
+          if (option.duration) {
+            optionButton.dataset.duration = String(option.duration);
+          }
+          optionButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            performModeration(option.action, option.duration ?? null);
+          });
+          moderationMenu.appendChild(optionButton);
+        });
+
+        moderationMenu.classList.remove("hidden");
+        moderationMenu.style.visibility = "hidden";
+        moderationMenu.style.left = "0px";
+        moderationMenu.style.top = "0px";
+
+        requestAnimationFrame(() => {
+          const bounds = moderationMenu.getBoundingClientRect();
+          let left = rect.left;
+          let top = rect.bottom + 6;
+          if (left + bounds.width > window.innerWidth - 8) {
+            left = window.innerWidth - bounds.width - 8;
+          }
+          if (left < 8) {
+            left = 8;
+          }
+          if (top + bounds.height > window.innerHeight - 8) {
+            top = rect.top - bounds.height - 6;
+          }
+          if (top < 8) {
+            top = 8;
+          }
+          moderationMenu.style.left = `${left}px`;
+          moderationMenu.style.top = `${top}px`;
+          moderationMenu.style.visibility = "visible";
+        });
+      }
+
+      function formatDurationLabel(seconds) {
+        if (!Number.isFinite(seconds)) {
+          return "";
+        }
+        const totalSeconds = Math.max(0, Math.round(seconds));
+        if (totalSeconds === 0) {
+          return "0s";
+        }
+        if (totalSeconds % 3600 === 0) {
+          const hours = totalSeconds / 3600;
+          return `${hours}h`;
+        }
+        if (totalSeconds % 60 === 0) {
+          const minutes = totalSeconds / 60;
+          return `${minutes}m`;
+        }
+        return `${totalSeconds}s`;
+      }
+
+      async function performModeration(action, duration) {
+        const targetMeta = moderationMenuTarget;
+        hideModerationMenu();
+        if (!targetMeta) {
+          return;
+        }
+
+        const { platform, username, userId } = targetMeta;
+        const normalizedPlatform = platform === "twitch" ? "twitch" : "kick";
+        const channelFallback = normalizedPlatform === "twitch" ? twitchInput.value.trim() : kickInput.value.trim();
+        const channel = currentChannels[normalizedPlatform] || channelFallback;
+
+        if (!channel) {
+          setStatus(`No ${normalizedPlatform} channel is active for moderation.`);
+          return;
+        }
+
+        const payload = {
+          platform: normalizedPlatform,
+          channel,
+          target: username,
+          action,
+        };
+
+        if (typeof duration === "number" && Number.isFinite(duration)) {
+          payload.duration = duration;
+        }
+        if (userId) {
+          payload.target_id = userId;
+        }
+
+        const durationSeconds =
+          action === "timeout" && typeof payload.duration === "number"
+            ? payload.duration
+            : null;
+        const baseLabel = moderationActionLabels[action] || action;
+        const decoratedAction =
+          durationSeconds != null ? `${baseLabel} (${formatDurationLabel(durationSeconds)})` : baseLabel;
+
+        try {
+          setStatus(`Sending ${decoratedAction} for ${username} on ${platform}…`);
+          const response = await fetch("/chat/moderate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            const detail =
+              errorBody && errorBody.detail
+                ? errorBody.detail
+                : response.statusText || "Unknown error";
+            const detailText =
+              typeof detail === "string" ? detail : JSON.stringify(detail);
+            setStatus(`Moderation failed for ${decoratedAction}: ${detailText}`);
+            return;
+          }
+
+          const suffix = moderationSuccessSuffix[action] || "processed for";
+          setStatus(`${decoratedAction} ${suffix} ${username} on ${platform}.`);
+        } catch (err) {
+          console.error("Failed to send moderation request", err);
+          setStatus(`Network error while sending ${decoratedAction} request.`);
+        }
+      }
+
+      function openModerationMenuForElement(usernameEl) {
+        if (!(usernameEl instanceof HTMLElement)) {
+          return;
+        }
+        const platform = usernameEl.dataset.platform;
+        const username = usernameEl.dataset.username || usernameEl.textContent || "";
+        const userId = usernameEl.dataset.userId || "";
+        if (!platform || !username) {
+          return;
+        }
+        const rect = usernameEl.getBoundingClientRect();
+        showModerationMenu(rect, { platform, username, userId });
+      }
+
+      chatEl.addEventListener("click", (event) => {
+        const target = event.target instanceof HTMLElement ? event.target.closest(".username") : null;
+        if (target) {
+          event.preventDefault();
+          event.stopPropagation();
+          openModerationMenuForElement(target);
+        } else {
+          hideModerationMenu();
+        }
+      });
+
+      chatEl.addEventListener("keydown", (event) => {
+        if (!(event.target instanceof HTMLElement) || !event.target.classList.contains("username")) {
+          return;
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openModerationMenuForElement(event.target);
+        }
+        if (event.key === "Escape") {
+          hideModerationMenu();
+        }
+      });
+
+      chatEl.addEventListener("scroll", hideModerationMenu);
+      window.addEventListener("resize", hideModerationMenu);
+
+      document.addEventListener("click", (event) => {
+        if (moderationMenu.classList.contains("hidden")) {
+          return;
+        }
+        if (event.target instanceof HTMLElement && moderationMenu.contains(event.target)) {
+          return;
+        }
+        hideModerationMenu();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          hideModerationMenu();
+        }
+      });
+
       function appendMessage(payload) {
         const shouldStick =
           chatEl.scrollTop >= chatEl.scrollHeight - chatEl.clientHeight - 40;
         const wrapper = document.createElement("div");
         wrapper.classList.add("message");
+        if (payload.platform) {
+          wrapper.dataset.platform = payload.platform;
+        }
 
         if (payload.type === "chat") {
           const icon = document.createElement("div");
@@ -532,23 +827,30 @@
             }
           }
 
-          const usernameContainer = document.createElement("span");
-          usernameContainer.style.display = "inline-flex";
-          usernameContainer.style.alignItems = "center";
-          usernameContainer.style.gap = "2px";
-          usernameContainer.style.flexShrink = "0";
-
           const username = document.createElement("span");
           username.classList.add("username");
           username.textContent = `${payload.user}`;
           username.style.color = resolveUsernameColor(payload);
-          usernameContainer.appendChild(username);
+          username.dataset.platform = payload.platform;
+          username.dataset.username = payload.user;
+          if (payload.user_id) {
+            username.dataset.userId = payload.user_id;
+          }
+          username.setAttribute("role", "button");
+          username.setAttribute("tabindex", "0");
+          username.setAttribute("aria-haspopup", "menu");
+
+          const nameGroup = document.createElement("span");
+          nameGroup.classList.add("name-group");
+          nameGroup.appendChild(username);
 
           const separator = document.createElement("span");
+          separator.classList.add("separator");
           separator.textContent = ":";
-          usernameContainer.appendChild(separator);
+          separator.setAttribute("aria-hidden", "true");
+          nameGroup.appendChild(separator);
 
-          meta.appendChild(usernameContainer);
+          meta.appendChild(nameGroup);
 
           wrapper.appendChild(meta);
 
@@ -665,8 +967,12 @@
           return;
         }
 
+        hideModerationMenu();
         clearChat();
         setStatus("Connecting…");
+
+        currentChannels.twitch = twitch;
+        currentChannels.kick = kick;
 
         if (socket) {
           socket.close();
@@ -699,6 +1005,7 @@
         socket.addEventListener("close", () => {
           setStatus("Disconnected.");
           disableMessageInput();
+          hideModerationMenu();
         });
 
         socket.addEventListener("error", () => {
@@ -837,6 +1144,7 @@
         }
         setStatus("Disconnected.");
         disableMessageInput();
+        hideModerationMenu();
       });
 
       // Message input event listeners

@@ -23,7 +23,12 @@ from app.models import KickUser, OAuthPlatform, TwitchUser
 TWITCH_AUTHORIZE_URL = "https://id.twitch.tv/oauth2/authorize"
 TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 TWITCH_USER_URL = "https://api.twitch.tv/helix/users"
-TWITCH_SCOPES = ["chat:read", "chat:edit", "user:write:chat"]
+TWITCH_SCOPES = [
+    "chat:read",
+    "chat:edit",
+    "user:write:chat",
+    "moderator:manage:banned_users",
+]
 
 KICK_AUTHORIZE_URL = "https://id.kick.com/oauth/authorize"
 KICK_TOKEN_URL = "https://id.kick.com/oauth/token"

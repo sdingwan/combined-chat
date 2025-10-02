@@ -170,17 +170,30 @@ class KickChatClient:
 
         content = data.get("content") or data.get("message")
         sender = data.get("sender") or data.get("user")
+        user_id = None
         if isinstance(sender, dict):
             username = sender.get("username") or sender.get("slug")
+            raw_id = sender.get("id") or sender.get("user_id")
+            if raw_id is not None:
+                user_id = str(raw_id)
         else:
             username = sender
+            if sender and isinstance(data.get("sender"), dict):  # fallback if id was nested
+                raw_id = data["sender"].get("id") or data["sender"].get("user_id")
+                if raw_id is not None:
+                    user_id = str(raw_id)
 
         if not content or not username:
             return None
 
-        return {
+        payload: dict[str, object] = {
             "platform": "kick",
             "type": "chat",
             "user": username,
             "message": content,
         }
+
+        if user_id:
+            payload["user_id"] = user_id
+
+        return payload

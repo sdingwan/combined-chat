@@ -115,6 +115,10 @@ class TwitchChatClient:
             if color:
                 message_payload["color"] = color
 
+            user_id = tags.get("user-id")
+            if user_id:
+                message_payload["user_id"] = user_id
+
             emotes = self._parse_emotes(tags.get("emotes"), text)
             if emotes:
                 message_payload["emotes"] = emotes
