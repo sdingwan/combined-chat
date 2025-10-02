@@ -99,10 +99,14 @@ The application provides a unified chat interface where you can:
    - `KICK_SCOPES` (optional override)
 
 4. **Deploy**
-   - Push to your connected branch or run `railway up` with the CLI. Railway installs dependencies, runs the build, and starts `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+   - Push to your connected branch or run `railway up` with the CLI. Railway installs dependencies, runs the build, and starts `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers ${WORKERS:-3}`.
    - Once deployed, visit the public Railway URL and complete the OAuth setup with your provider dashboards using the same redirect URIs you configured above.
 
 The `init_db` startup hook automatically creates tables on first boot as long as the database credentials are set.
+
+### Scaling workers
+
+By default the Procfile starts Uvicorn with three worker processes. You can override the count by defining a `WORKERS` environment variable in Railway (for example `WORKERS=1` for low-traffic dev or a higher number for more concurrency).
 
 ## API Endpoints
 
