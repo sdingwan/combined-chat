@@ -154,15 +154,17 @@
         border-radius: 6px;
         background: rgba(255, 255, 255, 0.02);
         border: 1px solid rgba(255, 255, 255, 0.05);
+        flex-wrap: wrap;
       }
 
       .message .meta {
         display: flex;
         align-items: center;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 4px;
         font-size: 0.9rem;
         color: rgba(226, 232, 240, 0.96);
+        flex-shrink: 0;
       }
 
       .message .meta .badges {
@@ -179,9 +181,11 @@
       }
 
       .message .content {
-        display: inline;
+        display: inline-block;
         font-size: 0.95rem;
         color: #efeff1;
+        flex: 1;
+        min-width: 0;
       }
 
       .message .content img.emote {
@@ -206,11 +210,11 @@
       }
 
       .platform-icon.twitch {
-        background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0nMjAnIGhlaWdodD0nMjAnIHZpZXdCb3g9JzAgMCAyMCAyMCcgeG1sbnM9J2h0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnJz48cmVjdCB3aWR0aD0nMjAnIGhlaWdodD0nMjAnIHJ4PSczJyBmaWxsPScjOTE0NkZGJy8+PHBhdGggZD0nTTYgNWgydjZINnptNCAwaDJ2NmgtMnonIGZpbGw9JyNmZmYnLz48L3N2Zz4=');
+        background-image: url('https://assets.twitch.tv/assets/favicon-32-e29e246c157142c94346.png');
       }
 
       .platform-icon.kick {
-        background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0nMjAnIGhlaWdodD0nMjAnIHZpZXdCb3g9JzAgMCAyMCAyMCcgeG1sbnM9J2h0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnJz48cmVjdCB3aWR0aD0nMjAnIGhlaWdodD0nMjAnIHJ4PSczJyBmaWxsPScjNTJGRjAwJy8+PHBhdGggZD0nTTYgNWgydjRsMy00aDNsLTMuNSA0LjVMMTQgMTVoLTNsLTIuNS00TDggMTJ2M0g2eicgZmlsbD0nIzFBMUExQScvPjwvc3ZnPg==');
+        background-image: url('https://kick.com/favicon.ico');
       }
 
       .message.status {
@@ -357,7 +361,7 @@
       let socket = null;
       let connectionReady = false;
       let authState = { authenticated: false, accounts: [], user: null };
-      const maxMessages = 200;
+      const maxMessages = 50;
 
       function setStatus(message) {
         statusEl.textContent = message;
@@ -528,16 +532,23 @@
             }
           }
 
+          const usernameContainer = document.createElement("span");
+          usernameContainer.style.display = "inline-flex";
+          usernameContainer.style.alignItems = "center";
+          usernameContainer.style.gap = "2px";
+          usernameContainer.style.flexShrink = "0";
+
           const username = document.createElement("span");
           username.classList.add("username");
           username.textContent = `${payload.user}`;
           username.style.color = resolveUsernameColor(payload);
-          meta.appendChild(username);
+          usernameContainer.appendChild(username);
 
           const separator = document.createElement("span");
           separator.textContent = ":";
-          separator.style.margin = "0 4px 0 2px";
-          meta.appendChild(separator);
+          usernameContainer.appendChild(separator);
+
+          meta.appendChild(usernameContainer);
 
           wrapper.appendChild(meta);
 
@@ -665,7 +676,7 @@
         socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
 
         socket.addEventListener("open", () => {
-          setStatus("Connection open. Joining chats…");
+          setStatus("Connection open. Joined chats.");
           enableMessageInput();
           socket.send(
             JSON.stringify({

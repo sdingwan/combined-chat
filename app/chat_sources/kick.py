@@ -123,36 +123,30 @@ class KickChatClient:
                 )
 
     async def _fetch_chatroom_id(self) -> int:
-        slug = self.channel.replace("_", "-")
-        endpoint = f"https://kick.com/api/v2/channels/{slug}"
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/json",
-        }
+        streamer = self.channel.replace("_", "-")
+        params = httpx.QueryParams({"streamer": streamer})
+        endpoint = f"https://api.stream-stuff.com/kickchatroomid.php?{params}"
 
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(endpoint, headers=headers)
+            response = await client.get(endpoint, headers={"Accept": "application/json"})
 
         if response.status_code == 404:
-            raise RuntimeError(f"Kick channel '{slug}' not found")
+            raise RuntimeError(f"Kick channel '{streamer}' not found")
         if response.status_code != 200:
             raise RuntimeError(
-                f"Kick channel lookup returned status {response.status_code} for '{slug}'"
+                f"Kick chatroom lookup returned status {response.status_code} for '{streamer}'"
             )
 
         try:
             payload = response.json()
         except json.JSONDecodeError as exc:
-            raise RuntimeError("Kick channel response was not valid JSON") from exc
+            raise RuntimeError("Kick chatroom lookup response was not valid JSON") from exc
 
-        chatroom = payload.get("chatroom") if isinstance(payload, dict) else None
-        if not isinstance(chatroom, dict) or "id" not in chatroom:
-            raise RuntimeError("Kick channel response missing chatroom id")
+        chatroom_id = payload.get("chatroom_id") if isinstance(payload, dict) else None
+        if not chatroom_id:
+            raise RuntimeError("Kick chatroom lookup response missing chatroom id")
 
-        return int(chatroom["id"])
+        return int(chatroom_id)
 
     def _decode_pusher_payload(self, raw: str) -> Optional[dict]:
         try:
