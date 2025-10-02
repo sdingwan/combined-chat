@@ -644,6 +644,7 @@
         }
         connectBtn.textContent = "Connected";
         connectBtn.classList.add("is-active");
+        connectBtn.disabled = true;
       }
 
       function resetConnectState() {
@@ -652,6 +653,7 @@
         }
         connectBtn.classList.remove("is-active");
         connectBtn.textContent = "Connect";
+        connectBtn.disabled = false;
       }
 
       function setStatus(message) {
