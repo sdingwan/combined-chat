@@ -146,6 +146,70 @@
         box-shadow: none;
       }
 
+      button.is-busy {
+        position: relative;
+        pointer-events: none;
+        opacity: 0.85;
+        padding-right: 28px;
+      }
+
+      button.is-busy::after {
+        content: "";
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 2px solid currentColor;
+        border-top-color: rgba(255, 255, 255, 0.2);
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        animation: button-spin 0.8s linear infinite;
+        opacity: 0.9;
+      }
+
+      button.is-busy.button--kick::after {
+        border-top-color: rgba(0, 0, 0, 0.2);
+      }
+
+      button.is-busy.button--neutral::after {
+        border-top-color: rgba(255, 255, 255, 0.2);
+      }
+
+      button.is-busy.button--danger::after {
+        border-top-color: rgba(255, 255, 255, 0.3);
+      }
+
+      button.is-busy.button--connect::after {
+        border-top-color: rgba(255, 255, 255, 0.25);
+      }
+
+      .button--connect.is-active {
+        --btn-bg: #16a34a;
+        --btn-shadow: rgba(22, 163, 74, 0.35);
+      }
+
+      .button--connect.is-active::before {
+        content: "";
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        margin-right: 6px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
+        vertical-align: middle;
+      }
+
+      @keyframes button-spin {
+        from {
+          transform: translateY(-50%) rotate(0deg);
+        }
+        to {
+          transform: translateY(-50%) rotate(360deg);
+        }
+      }
+
       .button--twitch {
         --btn-bg: var(--twitch-purple);
         --btn-shadow: var(--twitch-shadow);
@@ -458,8 +522,8 @@
           <input id="kickInput" type="text" placeholder="e.g. xqc" autocomplete="off" />
         </label>
         <div style="display: flex; gap: 12px; align-items: flex-end;">
-          <button type="submit" class="button--connect">Connect</button>
-          <button type="button" class="button--danger" id="disconnectBtn">Disconnect</button>
+          <button id="connectBtn" type="submit" class="button--connect">Connect</button>
+          <button type="button" class="button--danger" id="disconnectBtn" disabled>Disconnect</button>
         </div>
       </form>
 
@@ -487,6 +551,7 @@
       const kickInput = document.getElementById("kickInput");
       const statusEl = document.getElementById("status");
       const chatEl = document.getElementById("chat");
+      const connectBtn = document.getElementById("connectBtn");
       const disconnectBtn = document.getElementById("disconnectBtn");
       const messageInput = document.getElementById("messageInput");
       const sendButton = document.getElementById("sendButton");
@@ -540,6 +605,54 @@
       moderationMenu.id = "moderationMenu";
       moderationMenu.classList.add("moderation-menu", "hidden");
       document.body.appendChild(moderationMenu);
+
+      function setButtonBusy(button, busy, busyLabel) {
+        if (!button) {
+          return;
+        }
+        if (busy) {
+          button.dataset.wasDisabled = button.disabled ? "1" : "0";
+          if (!button.dataset.originalLabel) {
+            button.dataset.originalLabel = button.textContent.trim();
+          }
+          if (busyLabel) {
+            button.textContent = busyLabel;
+          }
+          button.classList.add("is-busy");
+          button.disabled = true;
+          button.setAttribute("aria-busy", "true");
+        } else {
+          const original = button.dataset.originalLabel;
+          if (original) {
+            button.textContent = original;
+          }
+          button.classList.remove("is-busy");
+          button.removeAttribute("aria-busy");
+          const wasDisabled = button.dataset.wasDisabled === "1";
+          if (wasDisabled) {
+            button.disabled = true;
+          } else {
+            button.disabled = false;
+          }
+          delete button.dataset.wasDisabled;
+        }
+      }
+
+      function markConnected() {
+        if (!connectBtn) {
+          return;
+        }
+        connectBtn.textContent = "Connected";
+        connectBtn.classList.add("is-active");
+      }
+
+      function resetConnectState() {
+        if (!connectBtn) {
+          return;
+        }
+        connectBtn.classList.remove("is-active");
+        connectBtn.textContent = "Connect";
+      }
 
       function setStatus(message) {
         statusEl.textContent = message;
@@ -1086,6 +1199,8 @@
         return `https://static-cdn.jtvnw.net/emoticons/v2/${id}/default/dark/2.0`;
       }
 
+      disconnectBtn.disabled = true;
+
       function connect() {
         const twitch = twitchInput.value.trim();
         const kick = kickInput.value.trim();
@@ -1098,6 +1213,9 @@
         hideModerationMenu();
         clearChat();
         setStatus("Connecting…");
+        setButtonBusy(connectBtn, true, "Connecting…");
+        setButtonBusy(disconnectBtn, false);
+        disconnectBtn.disabled = true;
 
         currentChannels.twitch = twitch;
         currentChannels.kick = kick;
@@ -1107,12 +1225,20 @@
         }
 
         const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-        socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
+        const activeSocket = new WebSocket(`${protocol}://${window.location.host}/ws`);
+        socket = activeSocket;
 
-        socket.addEventListener("open", () => {
+        activeSocket.addEventListener("open", (event) => {
+          if (event.target !== activeSocket) {
+            return;
+          }
           setStatus("Connection open. Joined chats.");
           enableMessageInput();
-          socket.send(
+          setButtonBusy(connectBtn, false);
+          setButtonBusy(disconnectBtn, false);
+          disconnectBtn.disabled = false;
+          markConnected();
+          activeSocket.send(
             JSON.stringify({
               action: "subscribe",
               twitch,
@@ -1121,7 +1247,10 @@
           );
         });
 
-        socket.addEventListener("message", (event) => {
+        activeSocket.addEventListener("message", (event) => {
+          if (event.target !== activeSocket) {
+            return;
+          }
           try {
             const payload = JSON.parse(event.data);
             appendMessage(payload);
@@ -1130,14 +1259,34 @@
           }
         });
 
-        socket.addEventListener("close", () => {
+        activeSocket.addEventListener("close", (event) => {
+          if (event.target !== activeSocket) {
+            return;
+          }
+          if (socket === activeSocket) {
+            socket = null;
+          }
           setStatus("Disconnected.");
           disableMessageInput();
           hideModerationMenu();
+          setButtonBusy(connectBtn, false);
+          setButtonBusy(disconnectBtn, false);
+          disconnectBtn.disabled = true;
+          resetConnectState();
         });
 
-        socket.addEventListener("error", () => {
+        activeSocket.addEventListener("error", (event) => {
+          if (event.target !== activeSocket) {
+            return;
+          }
+          if (socket === activeSocket) {
+            socket = null;
+          }
           setStatus("WebSocket error encountered.");
+          setButtonBusy(connectBtn, false);
+          setButtonBusy(disconnectBtn, false);
+          disconnectBtn.disabled = true;
+          resetConnectState();
         });
       }
 
@@ -1266,13 +1415,18 @@
       }
 
       disconnectBtn.addEventListener("click", () => {
-        if (socket) {
-          socket.close();
+        setButtonBusy(disconnectBtn, true, "Disconnecting…");
+        const closingSocket = socket;
+        if (closingSocket) {
+          closingSocket.close();
           socket = null;
+        } else {
+          setTimeout(() => setButtonBusy(disconnectBtn, false), 200);
         }
         setStatus("Disconnected.");
         disableMessageInput();
         hideModerationMenu();
+        resetConnectState();
       });
 
       // Message input event listeners
