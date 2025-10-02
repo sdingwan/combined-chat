@@ -165,6 +165,19 @@
         color: rgba(226, 232, 240, 0.96);
       }
 
+      .message .meta .badges {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        margin-right: 2px;
+      }
+
+      .message .meta .badges img {
+        width: 18px;
+        height: 18px;
+        object-fit: contain;
+      }
+
       .message .content {
         display: inline;
         font-size: 0.95rem;
@@ -487,6 +500,33 @@
 
           const meta = document.createElement("span");
           meta.classList.add("meta");
+
+          if (Array.isArray(payload.badges) && payload.badges.length) {
+            const badgeRow = document.createElement("span");
+            badgeRow.classList.add("badges");
+            payload.badges.forEach((badge) => {
+              if (!badge || !badge.image_url) {
+                return;
+              }
+              const img = document.createElement("img");
+              img.classList.add("badge");
+              img.src = badge.image_url;
+              if (badge.title) {
+                img.alt = badge.title;
+                img.title = badge.title;
+              } else if (badge.set_id) {
+                img.alt = badge.set_id;
+                img.title = badge.set_id;
+              } else {
+                img.alt = "twitch badge";
+                img.title = "twitch badge";
+              }
+              badgeRow.appendChild(img);
+            });
+            if (badgeRow.childElementCount) {
+              meta.appendChild(badgeRow);
+            }
+          }
 
           const username = document.createElement("span");
           username.classList.add("username");

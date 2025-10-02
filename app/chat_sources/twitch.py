@@ -1,9 +1,11 @@
 import asyncio
 import logging
 import secrets
+import time
 from typing import Optional
 
 import httpx
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +22,14 @@ class TwitchChatClient:
         self.stop_event = stop_event
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
+        self._badge_cache: dict[tuple[str, str], dict[str, str]] = {}
+        self._badge_token: Optional[str] = None
+        self._badge_token_expires_at: float = 0.0
 
     async def run(self) -> None:
         nickname = f"justinfan{secrets.randbelow(1_000_000):06d}"
         try:
+            await self._ensure_badge_cache()
             logger.info("Connecting to Twitch IRC for #%s", self.channel)
             self._reader, self._writer = await asyncio.open_connection(self.HOST, self.PORT)
             await self._write_line("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership")
@@ -113,6 +119,10 @@ class TwitchChatClient:
             if emotes:
                 message_payload["emotes"] = emotes
 
+            badges = self._resolve_badges(tags.get("badges"))
+            if badges:
+                message_payload["badges"] = badges
+
             return message_payload
         except (IndexError, ValueError):
             logger.debug("Unable to parse Twitch PRIVMSG: %s", payload)
@@ -158,3 +168,164 @@ class TwitchChatClient:
             {"id": emote_id, "name": name, "positions": positions}
             for (emote_id, name), positions in emote_map.items()
         ]
+
+    async def _ensure_badge_cache(self) -> None:
+        if self._badge_cache:
+            return
+
+        client_id = settings.twitch_client_id
+        client_secret = settings.twitch_client_secret
+
+        if not client_id or not client_secret:
+            logger.info("Skipping Twitch badge lookup; Twitch credentials not configured")
+            return
+
+        try:
+            token = await self._get_app_access_token(client_id, client_secret)
+            self._badge_cache.update(await self._fetch_badges(token, client_id, None))
+            broadcaster_id = await self._lookup_broadcaster_id(token, client_id)
+            if broadcaster_id:
+                self._badge_cache.update(
+                    await self._fetch_badges(token, client_id, broadcaster_id)
+                )
+        except Exception:  # pragma: no cover - network heavy
+            logger.exception("Failed to load Twitch badges for #%s", self.channel)
+            self._badge_cache.clear()
+
+    async def _get_app_access_token(self, client_id: str, client_secret: str) -> str:
+        if (
+            self._badge_token
+            and self._badge_token_expires_at
+            and self._badge_token_expires_at - time.time() > 60
+        ):
+            return self._badge_token
+
+        payload = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "client_credentials",
+        }
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post("https://id.twitch.tv/oauth2/token", data=payload)
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Unable to obtain Twitch app access token (status {response.status_code})"
+            )
+
+        data = response.json()
+        token = data.get("access_token")
+        expires_in = data.get("expires_in")
+        if not token or not isinstance(token, str):
+            raise RuntimeError("Twitch token response missing access_token")
+        if isinstance(expires_in, int):
+            self._badge_token_expires_at = time.time() + max(0, expires_in)
+        else:
+            self._badge_token_expires_at = time.time() + 3600
+        self._badge_token = token
+        return token
+
+    async def _lookup_broadcaster_id(self, token: str, client_id: str) -> Optional[str]:
+        params = {"login": self.channel}
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Client-Id": client_id,
+        }
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get("https://api.twitch.tv/helix/users", params=params, headers=headers)
+
+        if response.status_code != 200:
+            logger.debug(
+                "Failed to resolve Twitch broadcaster %s (status %s)",
+                self.channel,
+                response.status_code,
+            )
+            return None
+
+        try:
+            data = response.json()
+        except ValueError:
+            logger.debug("Invalid JSON while resolving Twitch broadcaster for %s", self.channel)
+            return None
+
+        entries = data.get("data") if isinstance(data, dict) else None
+        if isinstance(entries, list) and entries:
+            broadcaster_id = entries[0].get("id")
+            if broadcaster_id:
+                return str(broadcaster_id)
+        return None
+
+    async def _fetch_badges(
+        self, token: str, client_id: str, broadcaster_id: Optional[str]
+    ) -> dict[tuple[str, str], dict[str, str]]:
+        if broadcaster_id:
+            url = "https://api.twitch.tv/helix/chat/badges"
+            params = {"broadcaster_id": broadcaster_id}
+        else:
+            url = "https://api.twitch.tv/helix/chat/badges/global"
+            params = None
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Client-Id": client_id,
+            "Accept": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, params=params, headers=headers)
+
+        if response.status_code != 200:
+            raise RuntimeError(f"Badge lookup failed with status {response.status_code}")
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RuntimeError("Badge lookup returned invalid JSON") from exc
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list):
+            return {}
+
+        badges: dict[tuple[str, str], dict[str, str]] = {}
+        for badge_set in data:
+            set_id = badge_set.get("set_id") if isinstance(badge_set, dict) else None
+            versions = badge_set.get("versions") if isinstance(badge_set, dict) else None
+            if not set_id or not isinstance(versions, list):
+                continue
+            for version in versions:
+                if not isinstance(version, dict):
+                    continue
+                version_id = version.get("id")
+                if not version_id:
+                    continue
+                image_url = (
+                    version.get("image_url_1x")
+                    or version.get("image_url_2x")
+                    or version.get("image_url_4x")
+                )
+                if not image_url:
+                    continue
+                title = version.get("title") or version.get("description") or set_id
+                badges[(set_id, version_id)] = {
+                    "set_id": set_id,
+                    "version": version_id,
+                    "title": str(title),
+                    "image_url": str(image_url),
+                }
+        return badges
+
+    def _resolve_badges(self, badges_tag: Optional[str]) -> list[dict[str, str]]:
+        if not badges_tag or not self._badge_cache:
+            return []
+
+        result: list[dict[str, str]] = []
+        for token in badges_tag.split(","):
+            if not token:
+                continue
+            set_id, _, version = token.partition("/")
+            if not set_id or not version:
+                continue
+            badge = self._badge_cache.get((set_id, version))
+            if badge:
+                result.append(badge)
+        return result
