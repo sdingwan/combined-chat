@@ -132,6 +132,8 @@
         font-weight: 600;
         cursor: pointer;
         transition: transform 0.1s ease, box-shadow 0.1s ease;
+        position: relative;
+        white-space: nowrap;
       }
 
       button:hover {
@@ -147,7 +149,6 @@
       }
 
       button.is-busy {
-        position: relative;
         pointer-events: none;
         opacity: 0.85;
         padding-right: 28px;
@@ -161,7 +162,7 @@
         border-radius: 50%;
         border: 2px solid currentColor;
         border-top-color: rgba(255, 255, 255, 0.2);
-        right: 12px;
+        right: 10px;
         top: 50%;
         transform: translateY(-50%);
         animation: button-spin 0.8s linear infinite;
@@ -191,14 +192,15 @@
 
       .button--connect.is-active::before {
         content: "";
-        display: inline-block;
-        width: 10px;
-        height: 10px;
-        margin-right: 6px;
+        position: absolute;
+        left: 10px;
+        top: 50%;
+        transform: translateY(-50%);
         border-radius: 50%;
         background: rgba(255, 255, 255, 0.85);
         box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
-        vertical-align: middle;
+        width: 10px;
+        height: 10px;
       }
 
       @keyframes button-spin {
@@ -234,6 +236,11 @@
       .button--neutral {
         --btn-bg: var(--neutral-gray);
         --btn-shadow: var(--neutral-shadow);
+      }
+
+      .button--connect,
+      #disconnectBtn {
+        width: 140px;
       }
 
       #status {
