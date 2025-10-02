@@ -5,3 +5,4 @@ websockets
 sqlalchemy[asyncio]
 aiosqlite
 pydantic-settings
+asyncpg
