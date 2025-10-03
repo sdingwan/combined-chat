@@ -250,6 +250,10 @@
         padding: 0 4px;
       }
 
+      .chat-area {
+        position: relative;
+      }
+
       #chat {
         height: clamp(480px, 70vh, 820px);
         background: #0f0f11;
@@ -262,6 +266,62 @@
         flex-direction: column;
         gap: 8px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      }
+
+      .chat-pause-banner {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 18px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: rgba(24, 24, 31, 0.94);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 999px;
+        padding: 8px 14px;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+        z-index: 5;
+        transition: opacity 0.15s ease;
+      }
+
+      .chat-pause-banner.hidden {
+        display: none;
+      }
+
+      .chat-pause-banner__label {
+        font-size: 0.85rem;
+        color: rgba(226, 232, 240, 0.92);
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+      }
+
+      .chat-pause-banner__button {
+        all: unset;
+        border-radius: 999px;
+        padding: 6px 12px;
+        background: rgba(145, 70, 255, 0.92);
+        color: #ffffff;
+        font-weight: 600;
+        font-size: 0.83rem;
+        cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+      }
+
+      .chat-pause-banner__button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 18px rgba(145, 70, 255, 0.45);
+      }
+
+      .chat-pause-banner__button:disabled {
+        cursor: default;
+        opacity: 0.55;
+        transform: none;
+        box-shadow: none;
       }
 
       .message {
@@ -535,7 +595,20 @@
       </form>
 
       <div id="status">Waiting for connection…</div>
-      <div id="chat"></div>
+      <div class="chat-area">
+        <div id="chat"></div>
+        <div
+          id="chatPauseBanner"
+          class="chat-pause-banner hidden"
+          role="status"
+          aria-live="polite"
+        >
+          <span id="chatPauseLabel" class="chat-pause-banner__label">Chat Paused Due to Scroll</span>
+          <button id="chatResumeButton" class="chat-pause-banner__button" type="button" disabled>
+            Show new messages
+          </button>
+        </div>
+      </div>
       
       <div class="message-input-container">
         <select id="platformSelect" disabled>
@@ -567,11 +640,20 @@
       const twitchLoginBtn = document.getElementById("twitchLoginBtn");
       const kickLoginBtn = document.getElementById("kickLoginBtn");
       const logoutBtn = document.getElementById("logoutBtn");
+      const chatPauseBanner = document.getElementById("chatPauseBanner");
+      const chatPauseLabel = document.getElementById("chatPauseLabel");
+      const chatResumeButton = document.getElementById("chatResumeButton");
 
       let socket = null;
       let connectionReady = false;
       let authState = { authenticated: false, accounts: [], user: null };
       const maxMessages = 50;
+      const scrollLockEpsilon = 4;
+      const bufferedMessageLimit = 200;
+      const bufferedMessages = [];
+      let unreadBufferedCount = 0;
+      let pausedForScroll = false;
+      let suppressScrollHandler = false;
       const currentChannels = { twitch: "", kick: "" };
       const moderationOptions = [
         { action: "ban", label: "🚫", ariaLabel: "Ban user", variant: "danger", isIcon: true },
@@ -741,6 +823,105 @@
         }
       }
 
+      function isChatPaused() {
+        return pausedForScroll;
+      }
+
+      function isNearBottom() {
+        if (!chatEl) {
+          return true;
+        }
+        const distanceFromBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight;
+        return distanceFromBottom <= scrollLockEpsilon;
+      }
+
+      function scrollToBottom() {
+        if (!chatEl) {
+          return;
+        }
+        suppressScrollHandler = true;
+        chatEl.scrollTop = chatEl.scrollHeight;
+        const reset = () => {
+          suppressScrollHandler = false;
+        };
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(reset);
+        } else {
+          setTimeout(reset, 0);
+        }
+      }
+
+      function updatePauseBanner() {
+        if (!chatPauseBanner || !chatResumeButton) {
+          return;
+        }
+        const paused = isChatPaused();
+        chatPauseBanner.classList.toggle("hidden", !paused);
+        if (!paused) {
+          return;
+        }
+        const unreadCount = unreadBufferedCount;
+        if (chatPauseLabel) {
+          chatPauseLabel.textContent = "Chat Paused Due to Scroll";
+        }
+        const hasUnread = unreadCount > 0;
+        chatResumeButton.disabled = !hasUnread;
+        chatResumeButton.textContent = hasUnread
+          ? unreadCount === 1
+            ? "Show 1 new message"
+            : `Show ${unreadCount} new messages`
+          : "Show new messages";
+      }
+
+      function bufferIncomingMessage(payload) {
+        if (!payload) {
+          return;
+        }
+        if (bufferedMessages.length >= bufferedMessageLimit) {
+          bufferedMessages.shift();
+        }
+        bufferedMessages.push(payload);
+        unreadBufferedCount = bufferedMessages.length;
+        updatePauseBanner();
+      }
+
+      function flushBufferedMessages({ snapToBottom = true } = {}) {
+        if (!bufferedMessages.length) {
+          unreadBufferedCount = 0;
+          updatePauseBanner();
+          if (snapToBottom) {
+            scrollToBottom();
+          }
+          return;
+        }
+        const pending = bufferedMessages.splice(0, bufferedMessages.length);
+        pending.forEach((message) => {
+          addMessageToDom(message);
+        });
+        unreadBufferedCount = 0;
+        if (snapToBottom) {
+          scrollToBottom();
+        }
+        updatePauseBanner();
+      }
+
+      function onChatScroll() {
+        if (!chatEl || suppressScrollHandler) {
+          return;
+        }
+        if (isNearBottom()) {
+          if (pausedForScroll) {
+            pausedForScroll = false;
+            flushBufferedMessages({ snapToBottom: true });
+          } else {
+            updatePauseBanner();
+          }
+        } else if (!pausedForScroll) {
+          pausedForScroll = true;
+          updatePauseBanner();
+        }
+      }
+
       function renderAuthState() {
         if (authState && authState.authenticated) {
           const displayName =
@@ -803,6 +984,11 @@
 
       function clearChat() {
         chatEl.innerHTML = "";
+        bufferedMessages.length = 0;
+        unreadBufferedCount = 0;
+        pausedForScroll = false;
+        updatePauseBanner();
+        scrollToBottom();
       }
 
       function hideModerationMenu() {
@@ -1008,7 +1194,19 @@
         }
       });
 
-      chatEl.addEventListener("scroll", hideModerationMenu);
+      chatEl.addEventListener("scroll", () => {
+        hideModerationMenu();
+        onChatScroll();
+      });
+
+      if (chatResumeButton) {
+        chatResumeButton.addEventListener("click", () => {
+          pausedForScroll = false;
+          flushBufferedMessages({ snapToBottom: true });
+        });
+      }
+
+      updatePauseBanner();
       window.addEventListener("resize", hideModerationMenu);
 
       document.addEventListener("click", (event) => {
@@ -1033,27 +1231,26 @@
         }
       });
 
-      function appendMessage(payload) {
-        const shouldStick =
-          chatEl.scrollTop >= chatEl.scrollHeight - chatEl.clientHeight - 40;
+      function createMessageElement(payload) {
+        const data = payload || {};
         const wrapper = document.createElement("div");
         wrapper.classList.add("message");
-        if (payload.platform) {
-          wrapper.dataset.platform = payload.platform;
+        if (data.platform) {
+          wrapper.dataset.platform = data.platform;
         }
 
-        if (payload.type === "chat") {
+        if (data.type === "chat") {
           const icon = document.createElement("div");
-          icon.classList.add("platform-icon", payload.platform);
+          icon.classList.add("platform-icon", data.platform);
           wrapper.appendChild(icon);
 
           const meta = document.createElement("span");
           meta.classList.add("meta");
 
-          if (Array.isArray(payload.badges) && payload.badges.length) {
+          if (Array.isArray(data.badges) && data.badges.length) {
             const badgeRow = document.createElement("span");
             badgeRow.classList.add("badges");
-            payload.badges.forEach((badge) => {
+            data.badges.forEach((badge) => {
               if (!badge || !badge.image_url) {
                 return;
               }
@@ -1079,12 +1276,12 @@
 
           const username = document.createElement("span");
           username.classList.add("username");
-          username.textContent = `${payload.user}`;
-          username.style.color = resolveUsernameColor(payload);
-          username.dataset.platform = payload.platform;
-          username.dataset.username = payload.user;
-          if (payload.user_id) {
-            username.dataset.userId = payload.user_id;
+          username.textContent = `${data.user}`;
+          username.style.color = resolveUsernameColor(data);
+          username.dataset.platform = data.platform || "";
+          username.dataset.username = data.user || "";
+          if (data.user_id) {
+            username.dataset.userId = data.user_id;
           }
           username.setAttribute("role", "button");
           username.setAttribute("tabindex", "0");
@@ -1106,31 +1303,59 @@
 
           const text = document.createElement("span");
           text.classList.add("content");
-          text.innerHTML = renderMessageContent(payload);
+          text.innerHTML = renderMessageContent(data);
 
           wrapper.appendChild(text);
         } else {
-          wrapper.classList.add(payload.type);
-          wrapper.textContent = payload.message;
+          if (data.type) {
+            wrapper.classList.add(data.type);
+          }
+          if (data.message != null) {
+            wrapper.textContent = data.message;
+          } else {
+            wrapper.textContent = "";
+          }
         }
 
-        chatEl.appendChild(wrapper);
+        return wrapper;
+      }
 
+      function enforceMessageLimit() {
+        if (!chatEl) {
+          return;
+        }
         while (chatEl.children.length > maxMessages) {
           const firstChild = chatEl.firstChild;
           if (!firstChild) {
             break;
           }
-          const removedHeight = firstChild instanceof HTMLElement ? firstChild.offsetHeight : 0;
           chatEl.removeChild(firstChild);
-          if (!shouldStick && removedHeight) {
-            chatEl.scrollTop = Math.max(0, chatEl.scrollTop - removedHeight);
-          }
         }
+      }
 
-        if (shouldStick) {
-          chatEl.scrollTop = chatEl.scrollHeight;
+      function addMessageToDom(payload) {
+        if (!chatEl) {
+          return;
         }
+        const element = createMessageElement(payload);
+        chatEl.appendChild(element);
+        enforceMessageLimit();
+      }
+
+      function appendMessage(payload) {
+        if (!payload) {
+          return;
+        }
+        const atBottom = isNearBottom();
+        if (isChatPaused() || !atBottom) {
+          if (!pausedForScroll && !atBottom) {
+            pausedForScroll = true;
+          }
+          bufferIncomingMessage(payload);
+          return;
+        }
+        addMessageToDom(payload);
+        scrollToBottom();
       }
 
       function renderMessageContent(payload) {
