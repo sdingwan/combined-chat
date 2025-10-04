@@ -108,14 +108,19 @@
         box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
       }
 
-      #twitchInput:hover,
-      #twitchInput:focus {
+      input[type="text"].input--locked {
+        cursor: not-allowed;
+        border-color: rgba(148, 163, 184, 0.15);
+        background: rgba(15, 23, 42, 0.5);
+        color: rgba(226, 232, 240, 0.65);
+      }
+
+      #twitchInput:not(.input--locked):is(:focus, :focus-visible) {
         border-color: var(--twitch-purple);
         box-shadow: 0 0 0 3px rgba(145, 70, 255, 0.2);
       }
 
-      #kickInput:hover,
-      #kickInput:focus {
+      #kickInput:not(.input--locked):is(:focus, :focus-visible) {
         border-color: var(--kick-green);
         box-shadow: 0 0 0 3px rgba(83, 252, 24, 0.2);
       }
@@ -335,35 +340,35 @@
         border-radius: 6px;
         background: rgba(255, 255, 255, 0.02);
         border: 1px solid rgba(255, 255, 255, 0.05);
-        flex-wrap: wrap;
       }
 
       .message .meta {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 4px;
-        font-size: 0.9rem;
-        color: rgba(226, 232, 240, 0.96);
+        flex: 1;
+        min-width: 0;
+        font-size: 0.95rem;
+        color: #efeff1;
+        word-break: break-word;
       }
 
       .message .meta .name-group {
         display: inline-flex;
-        align-items: center;
+        align-items: baseline;
         gap: 4px;
         white-space: nowrap;
-        flex-shrink: 0;
+        margin-right: 6px;
+        color: rgba(226, 232, 240, 0.96);
       }
 
       .message .meta .separator {
         opacity: 0.85;
+        margin-right: 2px;
       }
 
       .message .meta .badges {
         display: inline-flex;
         align-items: center;
         gap: 3px;
-        margin-right: 2px;
+        margin-right: 6px;
       }
 
       .message .meta .badges img {
@@ -373,11 +378,9 @@
       }
 
       .message .content {
-        display: inline-block;
-        font-size: 0.95rem;
-        color: #efeff1;
-        flex: 1;
-        min-width: 0;
+        display: inline;
+        font-size: inherit;
+        color: inherit;
       }
 
       .message .content img.emote {
@@ -783,6 +786,44 @@
 
       function updateMessageControls() {
         const options = buildPlatformOptions();
+        const isLocked = connectionReady;
+        const channelInputs = [
+          { el: twitchInput, lockLabel: "Disconnect to change Twitch channel" },
+          { el: kickInput, lockLabel: "Disconnect to change Kick channel" },
+        ];
+
+        channelInputs.forEach(({ el, lockLabel }) => {
+          if (!el) {
+            return;
+          }
+          if (!Object.prototype.hasOwnProperty.call(el.dataset, "originalPlaceholder")) {
+            el.dataset.originalPlaceholder = el.placeholder || "";
+          }
+          if (!Object.prototype.hasOwnProperty.call(el.dataset, "originalTitle")) {
+            el.dataset.originalTitle = el.title || "";
+          }
+
+          el.readOnly = isLocked;
+          el.classList.toggle("input--locked", isLocked);
+          if (isLocked) {
+            el.setAttribute("aria-disabled", "true");
+            el.title = lockLabel;
+            if (!el.value) {
+              el.placeholder = lockLabel;
+            }
+          } else {
+            el.removeAttribute("aria-disabled");
+            const originalPlaceholder = el.dataset.originalPlaceholder || "";
+            el.placeholder = originalPlaceholder;
+            const originalTitle = el.dataset.originalTitle || "";
+            if (originalTitle) {
+              el.title = originalTitle;
+            } else {
+              el.removeAttribute("title");
+            }
+          }
+        });
+
         platformSelect.innerHTML = "";
         if (!options.length) {
           const placeholder = document.createElement("option");
@@ -1299,13 +1340,13 @@
 
           meta.appendChild(nameGroup);
 
-          wrapper.appendChild(meta);
-
           const text = document.createElement("span");
           text.classList.add("content");
           text.innerHTML = renderMessageContent(data);
 
-          wrapper.appendChild(text);
+          meta.appendChild(text);
+
+          wrapper.appendChild(meta);
         } else {
           if (data.type) {
             wrapper.classList.add(data.type);
