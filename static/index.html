@@ -531,6 +531,21 @@
         box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
       }
 
+      #messageInput.message-input--neutral:focus {
+        border-color: #6366f1;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+      }
+
+      #messageInput.message-input--twitch:focus {
+        border-color: var(--twitch-purple);
+        box-shadow: 0 0 0 3px var(--twitch-shadow);
+      }
+
+      #messageInput.message-input--kick:focus {
+        border-color: var(--kick-green);
+        box-shadow: 0 0 0 3px var(--kick-shadow);
+      }
+
       #messageInput::placeholder {
         color: rgba(239, 239, 241, 0.5);
       }
@@ -648,6 +663,7 @@
       const chatResumeButton = document.getElementById("chatResumeButton");
 
       let socket = null;
+      let sendingMessage = false;
       let connectionReady = false;
       let authState = { authenticated: false, accounts: [], user: null };
       const maxMessages = 50;
@@ -692,6 +708,11 @@
       };
       let moderationMenuTarget = null;
       const sendButtonPlatformClasses = ["button--twitch", "button--kick", "button--neutral"];
+      const messageInputPlatformClasses = [
+        "message-input--twitch",
+        "message-input--kick",
+        "message-input--neutral",
+      ];
 
       const moderationMenu = document.createElement("div");
       moderationMenu.id = "moderationMenu";
@@ -773,15 +794,26 @@
       }
 
       function applySendButtonStyle(platform) {
-        sendButton.classList.remove(...sendButtonPlatformClasses);
-        const className =
+        const buttonClass =
           platform === "twitch"
             ? "button--twitch"
             : platform === "kick"
               ? "button--kick"
               : "button--neutral";
-        sendButton.classList.add(className);
+        sendButton.classList.remove(...sendButtonPlatformClasses);
+        sendButton.classList.add(buttonClass);
         sendButton.dataset.platform = platform || "";
+
+        if (messageInput) {
+          const inputClass =
+            platform === "twitch"
+              ? "message-input--twitch"
+              : platform === "kick"
+                ? "message-input--kick"
+                : "message-input--neutral";
+          messageInput.classList.remove(...messageInputPlatformClasses);
+          messageInput.classList.add(inputClass);
+        }
       }
 
       function updateMessageControls() {
@@ -1719,6 +1751,9 @@
       });
 
       async function sendMessage() {
+        if (sendingMessage) {
+          return;
+        }
         const platform = platformSelect.value;
         const message = messageInput.value.trim();
 
@@ -1739,6 +1774,16 @@
           setStatus(`Enter a ${platform} channel before sending.`);
           return;
         }
+
+        const previousPlatformValue = platform;
+
+        const sendButtonWasDisabled = sendButton.disabled;
+
+        sendingMessage = true;
+
+        sendButton.disabled = true;
+        messageInput.disabled = true;
+        platformSelect.disabled = true;
 
         try {
           const response = await fetch("/chat/send", {
@@ -1766,6 +1811,23 @@
         } catch (err) {
           console.error("Failed to send chat message", err);
           setStatus("Network error while sending chat message.");
+        } finally {
+          sendingMessage = false;
+          updateMessageControls();
+          if (previousPlatformValue) {
+            const options = Array.from(platformSelect.options);
+            const matchingOption = options.find((option) => option.value === previousPlatformValue);
+            if (matchingOption) {
+              platformSelect.value = previousPlatformValue;
+            }
+          }
+          applySendButtonStyle(!platformSelect.disabled ? platformSelect.value : "");
+          if (sendButtonWasDisabled && !sendButton.disabled) {
+            sendButton.disabled = true;
+          }
+          if (!messageInput.disabled) {
+            messageInput.focus();
+          }
         }
       }
 
