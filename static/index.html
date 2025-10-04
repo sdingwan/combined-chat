@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Combined Twitch &amp; Kick Chat</title>
+    <title>Combined Chat</title>
     <style>
       :root {
         color-scheme: dark light;
@@ -44,6 +44,7 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
+        padding-bottom: 200px;
       }
 
       .auth-panel {
@@ -54,6 +55,20 @@
         padding: 8px 10px;
         border-radius: 8px;
         border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .auth-panel__header {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: #f8fafc;
       }
 
       .auth-status {
@@ -260,7 +275,10 @@
       }
 
       #chat {
-        height: clamp(480px, 70vh, 820px);
+        height: clamp(430px, 64vh, 760px);
+        min-height: 360px;
+        max-height: 90vh;
+        resize: vertical;
         background: #0f0f11;
         border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -588,9 +606,11 @@
   </head>
   <body>
     <div class="container">
-      <h1>Combined Twitch &amp; Kick Chat</h1>
       <div class="auth-panel">
-        <div id="authStatus" class="auth-status">Checking authentication…</div>
+        <div class="auth-panel__header">
+          <h1 class="panel-title">Combined Twitch &amp; Kick Chat</h1>
+          <div id="authStatus" class="auth-status">Checking authentication…</div>
+        </div>
         <div class="auth-actions">
           <button id="twitchLoginBtn" type="button" class="button--twitch">Login with Twitch</button>
           <button id="kickLoginBtn" type="button" class="button--kick">Login with Kick</button>
