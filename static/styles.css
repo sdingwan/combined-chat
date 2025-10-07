@@ -503,6 +503,13 @@ button.is-busy.button--connect::after {
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
 }
 
+.moderation-menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .moderation-menu__title {
   font-size: 0.75rem;
   letter-spacing: 0.04em;
@@ -516,6 +523,30 @@ button.is-busy.button--connect::after {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.moderation-menu__close {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: rgba(248, 250, 252, 0.75);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.moderation-menu__close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  transform: translateY(-1px);
+}
+
+.moderation-menu__close:focus-visible {
+  outline: 2px solid rgba(129, 140, 248, 0.6);
+  outline-offset: 2px;
 }
 
 .moderation-menu__button {

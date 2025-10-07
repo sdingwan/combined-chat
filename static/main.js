@@ -61,6 +61,7 @@ const moderationSuccessSuffix = {
   untimeout: "completed for",
 };
 let moderationMenuTarget = null;
+let moderationMenuPosition = null;
 const sendButtonPlatformClasses = ["button--twitch", "button--kick", "button--neutral"];
 const messageInputPlatformClasses = [
   "message-input--twitch",
@@ -419,23 +420,112 @@ function clearChat() {
 }
 
 function hideModerationMenu() {
-  if (moderationMenuTarget) {
-    moderationMenuTarget = null;
-  }
+  moderationMenuTarget = null;
+  moderationMenuPosition = null;
   moderationMenu.style.visibility = "";
   moderationMenu.classList.add("hidden");
   moderationMenu.innerHTML = "";
 }
 
-function showModerationMenu(rect, metadata) {
+function positionModerationMenu({ anchorRect } = {}) {
+  if (moderationMenu.classList.contains("hidden")) {
+    return;
+  }
+
+  const bounds = moderationMenu.getBoundingClientRect();
+  const menuWidth = bounds.width || moderationMenu.offsetWidth || 0;
+  const menuHeight = bounds.height || moderationMenu.offsetHeight || 0;
+
+  if (anchorRect) {
+    let left = anchorRect.left;
+    let top = anchorRect.bottom + 6;
+
+    const maxLeft = window.innerWidth - menuWidth - 8;
+    if (Number.isFinite(maxLeft) && left > maxLeft) {
+      left = Math.max(8, maxLeft);
+    }
+    if (left < 8) {
+      left = 8;
+    }
+
+    const maxTop = window.innerHeight - menuHeight - 8;
+    if (Number.isFinite(maxTop) && top > maxTop) {
+      top = anchorRect.top - menuHeight - 6;
+    }
+    if (top < 8) {
+      top = 8;
+    }
+
+    moderationMenuPosition = { left, top };
+  }
+
+  if (!moderationMenuPosition) {
+    return;
+  }
+
+  let { left, top } = moderationMenuPosition;
+
+  const maxLeft = window.innerWidth - menuWidth - 8;
+  if (Number.isFinite(maxLeft)) {
+    left = Math.min(left, Math.max(8, maxLeft));
+  }
+  left = Math.max(8, left);
+
+  const maxTop = window.innerHeight - menuHeight - 8;
+  if (Number.isFinite(maxTop)) {
+    top = Math.min(top, Math.max(8, maxTop));
+  }
+  top = Math.max(8, top);
+
+  moderationMenuPosition.left = left;
+  moderationMenuPosition.top = top;
+
+  moderationMenu.style.left = `${Math.round(left)}px`;
+  moderationMenu.style.top = `${Math.round(top)}px`;
+}
+
+function showModerationMenu(anchor, metadata) {
+  if (!metadata || typeof metadata !== "object") {
+    hideModerationMenu();
+    return;
+  }
+  const anchorElement = anchor instanceof HTMLElement ? anchor : null;
+  if (!anchorElement) {
+    hideModerationMenu();
+    return;
+  }
+  const anchorRect = anchorElement.getBoundingClientRect();
   moderationMenuTarget = metadata;
+  moderationMenuPosition = null;
   moderationMenu.innerHTML = "";
+
+  const header = document.createElement("div");
+  header.classList.add("moderation-menu__header");
 
   const title = document.createElement("div");
   title.classList.add("moderation-menu__title");
-  const platformLabel = metadata.platform === "twitch" ? "Twitch" : "Kick";
+  const platformLabel =
+    metadata.platform === "twitch"
+      ? "Twitch"
+      : metadata.platform === "kick"
+        ? "Kick"
+        : metadata.platform || "Unknown";
   title.textContent = `${platformLabel} • ${metadata.username}`;
-  moderationMenu.appendChild(title);
+  header.appendChild(title);
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.classList.add("moderation-menu__close");
+  closeButton.setAttribute("aria-label", "Close moderation menu");
+  closeButton.title = "Close moderation menu";
+  closeButton.textContent = "×";
+  closeButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    hideModerationMenu();
+  });
+  header.appendChild(closeButton);
+
+  moderationMenu.appendChild(header);
 
   const actions = document.createElement("div");
   actions.classList.add("moderation-menu__actions");
@@ -475,24 +565,10 @@ function showModerationMenu(rect, metadata) {
   moderationMenu.style.top = "0px";
 
   requestAnimationFrame(() => {
-    const bounds = moderationMenu.getBoundingClientRect();
-    let left = rect.left;
-    let top = rect.bottom + 6;
-    if (left + bounds.width > window.innerWidth - 8) {
-      left = window.innerWidth - bounds.width - 8;
+    positionModerationMenu({ anchorRect });
+    if (!moderationMenu.classList.contains("hidden")) {
+      moderationMenu.style.visibility = "visible";
     }
-    if (left < 8) {
-      left = 8;
-    }
-    if (top + bounds.height > window.innerHeight - 8) {
-      top = rect.top - bounds.height - 6;
-    }
-    if (top < 8) {
-      top = 8;
-    }
-    moderationMenu.style.left = `${left}px`;
-    moderationMenu.style.top = `${top}px`;
-    moderationMenu.style.visibility = "visible";
   });
 }
 
@@ -593,8 +669,7 @@ function openModerationMenuForElement(usernameEl) {
   if (!platform || !username) {
     return;
   }
-  const rect = usernameEl.getBoundingClientRect();
-  showModerationMenu(rect, { platform, username, userId });
+  showModerationMenu(usernameEl, { platform, username, userId });
 }
 
 chatEl.addEventListener("click", (event) => {
@@ -622,7 +697,6 @@ chatEl.addEventListener("keydown", (event) => {
 });
 
 chatEl.addEventListener("scroll", () => {
-  hideModerationMenu();
   onChatScroll();
 });
 
@@ -634,7 +708,7 @@ if (chatResumeButton) {
 }
 
 updatePauseBanner();
-window.addEventListener("resize", hideModerationMenu);
+window.addEventListener("resize", positionModerationMenu);
 
 document.addEventListener("click", (event) => {
   if (moderationMenu.classList.contains("hidden")) {
