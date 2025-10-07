@@ -318,6 +318,7 @@ button.is-busy.button--connect::after {
   font-size: 0.9rem;
   color: #bcb9ff;
   padding: 0 4px;
+  margin: 12px 0 6px;
 }
 
 .chat-area {

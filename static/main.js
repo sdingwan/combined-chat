@@ -30,8 +30,7 @@ let suppressScrollHandler = false;
 const currentChannels = { twitch: "", kick: "" };
 const moderationOptions = [
   { action: "ban", label: "🚫", ariaLabel: "Ban user", variant: "danger", isIcon: true },
-  {
-    action: "timeout",
+  { action: "timeout",
     label: "🕓",
     ariaLabel: "Timeout 10 minutes (600 seconds)",
     duration: 10 * 60,
@@ -61,7 +60,7 @@ const moderationSuccessSuffix = {
   untimeout: "completed for",
 };
 let moderationMenuTarget = null;
-let moderationMenuPosition = null;
+let moderationMenuAnchor = null;
 const sendButtonPlatformClasses = ["button--twitch", "button--kick", "button--neutral"];
 const messageInputPlatformClasses = [
   "message-input--twitch",
@@ -421,65 +420,40 @@ function clearChat() {
 
 function hideModerationMenu() {
   moderationMenuTarget = null;
-  moderationMenuPosition = null;
+  moderationMenuAnchor = null;
   moderationMenu.style.visibility = "";
   moderationMenu.classList.add("hidden");
   moderationMenu.innerHTML = "";
 }
 
-function positionModerationMenu({ anchorRect } = {}) {
-  if (moderationMenu.classList.contains("hidden")) {
+function positionModerationMenu() {
+  if (!moderationMenuAnchor || moderationMenu.classList.contains("hidden")) {
     return;
   }
-
+  if (!document.body.contains(moderationMenuAnchor)) {
+    hideModerationMenu();
+    return;
+  }
+  const rect = moderationMenuAnchor.getBoundingClientRect();
   const bounds = moderationMenu.getBoundingClientRect();
   const menuWidth = bounds.width || moderationMenu.offsetWidth || 0;
   const menuHeight = bounds.height || moderationMenu.offsetHeight || 0;
-
-  if (anchorRect) {
-    let left = anchorRect.left;
-    let top = anchorRect.bottom + 6;
-
-    const maxLeft = window.innerWidth - menuWidth - 8;
-    if (Number.isFinite(maxLeft) && left > maxLeft) {
-      left = Math.max(8, maxLeft);
-    }
-    if (left < 8) {
-      left = 8;
-    }
-
-    const maxTop = window.innerHeight - menuHeight - 8;
-    if (Number.isFinite(maxTop) && top > maxTop) {
-      top = anchorRect.top - menuHeight - 6;
-    }
-    if (top < 8) {
-      top = 8;
-    }
-
-    moderationMenuPosition = { left, top };
-  }
-
-  if (!moderationMenuPosition) {
-    return;
-  }
-
-  let { left, top } = moderationMenuPosition;
-
+  let left = rect.left;
+  let top = rect.bottom + 6;
   const maxLeft = window.innerWidth - menuWidth - 8;
-  if (Number.isFinite(maxLeft)) {
-    left = Math.min(left, Math.max(8, maxLeft));
+  if (Number.isFinite(maxLeft) && left > maxLeft) {
+    left = Math.max(8, maxLeft);
   }
-  left = Math.max(8, left);
-
+  if (left < 8) {
+    left = 8;
+  }
   const maxTop = window.innerHeight - menuHeight - 8;
-  if (Number.isFinite(maxTop)) {
-    top = Math.min(top, Math.max(8, maxTop));
+  if (Number.isFinite(maxTop) && top > maxTop) {
+    top = rect.top - menuHeight - 6;
   }
-  top = Math.max(8, top);
-
-  moderationMenuPosition.left = left;
-  moderationMenuPosition.top = top;
-
+  if (top < 8) {
+    top = 8;
+  }
   moderationMenu.style.left = `${Math.round(left)}px`;
   moderationMenu.style.top = `${Math.round(top)}px`;
 }
@@ -489,14 +463,12 @@ function showModerationMenu(anchor, metadata) {
     hideModerationMenu();
     return;
   }
-  const anchorElement = anchor instanceof HTMLElement ? anchor : null;
-  if (!anchorElement) {
+  moderationMenuTarget = metadata;
+  moderationMenuAnchor = anchor instanceof HTMLElement ? anchor : null;
+  if (!moderationMenuAnchor) {
     hideModerationMenu();
     return;
   }
-  const anchorRect = anchorElement.getBoundingClientRect();
-  moderationMenuTarget = metadata;
-  moderationMenuPosition = null;
   moderationMenu.innerHTML = "";
 
   const header = document.createElement("div");
@@ -565,7 +537,7 @@ function showModerationMenu(anchor, metadata) {
   moderationMenu.style.top = "0px";
 
   requestAnimationFrame(() => {
-    positionModerationMenu({ anchorRect });
+    positionModerationMenu();
     if (!moderationMenu.classList.contains("hidden")) {
       moderationMenu.style.visibility = "visible";
     }
@@ -591,6 +563,35 @@ function formatDurationLabel(seconds) {
   return `${totalSeconds}s`;
 }
 
+function getModeratorDisplayName() {
+  const user = authState && authState.user;
+  if (!user || typeof user !== "object") {
+    return "You";
+  }
+  const candidates = ["display_name", "displayName", "username", "login", "name"];
+  for (const key of candidates) {
+    const value = user[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(user, "id")) {
+    return `User #${user.id}`;
+  }
+  return "You";
+}
+
+function formatPlatformName(value) {
+  if (typeof value !== "string") {
+    return "Platform";
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "Platform";
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
 async function performModeration(action, duration) {
   const targetMeta = moderationMenuTarget;
   hideModerationMenu();
@@ -602,9 +603,10 @@ async function performModeration(action, duration) {
   const normalizedPlatform = platform === "twitch" ? "twitch" : "kick";
   const channelFallback = normalizedPlatform === "twitch" ? twitchInput.value.trim() : kickInput.value.trim();
   const channel = currentChannels[normalizedPlatform] || channelFallback;
+  const normalizedPlatformLabel = formatPlatformName(normalizedPlatform);
 
   if (!channel) {
-    setStatus(`No ${normalizedPlatform} channel is active for moderation.`);
+    setStatus(`No ${normalizedPlatformLabel} channel is active for moderation.`);
     return;
   }
 
@@ -629,9 +631,10 @@ async function performModeration(action, duration) {
   const baseLabel = moderationActionLabels[action] || action;
   const decoratedAction =
     durationSeconds != null ? `${baseLabel} (${formatDurationLabel(durationSeconds)})` : baseLabel;
+  const platformLabel = formatPlatformName(platform);
 
   try {
-    setStatus(`Sending ${decoratedAction} for ${username} on ${platform}…`);
+    setStatus(`Sending ${decoratedAction} for ${username} on ${platformLabel}…`);
     const response = await fetch("/chat/moderate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -652,7 +655,21 @@ async function performModeration(action, duration) {
     }
 
     const suffix = moderationSuccessSuffix[action] || "processed for";
-    setStatus(`${decoratedAction} ${suffix} ${username} on ${platform}.`);
+    const moderator = getModeratorDisplayName();
+    if (action === "timeout") {
+      const durationLabel =
+        durationSeconds != null ? formatDurationLabel(durationSeconds) : "";
+      const durationText = durationLabel ? ` for ${durationLabel}` : "";
+      setStatus(`${moderator} timed out ${username}${durationText} on ${platformLabel}.`);
+    } else if (action === "ban") {
+      setStatus(`${moderator} banned ${username} on ${platformLabel}.`);
+    } else if (action === "unban") {
+      setStatus(`${moderator} unbanned ${username} on ${platformLabel}.`);
+    } else if (action === "untimeout") {
+      setStatus(`${moderator} removed the timeout for ${username} on ${platformLabel}.`);
+    } else {
+      setStatus(`${decoratedAction} ${suffix} ${username} on ${platformLabel}.`);
+    }
   } catch (err) {
     console.error("Failed to send moderation request", err);
     setStatus(`Network error while sending ${decoratedAction} request.`);
@@ -698,6 +715,7 @@ chatEl.addEventListener("keydown", (event) => {
 
 chatEl.addEventListener("scroll", () => {
   onChatScroll();
+  positionModerationMenu();
 });
 
 if (chatResumeButton) {
@@ -830,6 +848,13 @@ function enforceMessageLimit() {
     if (!firstChild) {
       break;
     }
+    if (
+      moderationMenuAnchor &&
+      firstChild instanceof HTMLElement &&
+      firstChild.contains(moderationMenuAnchor)
+    ) {
+      hideModerationMenu();
+    }
     chatEl.removeChild(firstChild);
   }
 }
@@ -841,6 +866,7 @@ function addMessageToDom(payload) {
   const element = createMessageElement(payload);
   chatEl.appendChild(element);
   enforceMessageLimit();
+  positionModerationMenu();
 }
 
 function appendMessage(payload) {
