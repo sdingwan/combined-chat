@@ -26,26 +26,31 @@ body {
   color: #efeff1;
   min-height: 100vh;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   overflow-x: hidden;
 }
 
 .container {
   width: 100%;
-  max-width: 800px;
+  max-width: none;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding-bottom: 200px;
+  flex: 1;
 }
 
 .auth-panel {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
   background: #18181b;
-  padding: 8px 10px;
+  padding: 14px 18px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -54,6 +59,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1 1 320px;
+  min-width: 260px;
 }
 
 .panel-title {
@@ -72,7 +79,27 @@ body {
 .auth-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 10px;
+  justify-content: flex-end;
+  flex: 1 0 260px;
+}
+
+.auth-actions button {
+  padding: 12px 22px;
+  font-size: 0.95rem;
+  min-width: 150px;
+}
+
+@media (max-width: 720px) {
+  .auth-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .auth-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
 }
 
 h1 {
@@ -93,12 +120,24 @@ form {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+#channelForm {
+  gap: 16px;
+  align-items: flex-end;
+  padding: 12px 16px;
+}
+
 label {
   display: flex;
   flex-direction: column;
   font-size: 0.85rem;
   gap: 4px;
   min-width: 220px;
+}
+
+#channelForm label {
+  flex: 1 1 280px;
+  min-width: 260px;
+  font-size: 0.95rem;
 }
 
 input[type="text"] {
@@ -121,6 +160,24 @@ input[type="text"].input--locked {
   border-color: rgba(148, 163, 184, 0.15);
   background: rgba(15, 23, 42, 0.5);
   color: rgba(226, 232, 240, 0.65);
+}
+
+#channelForm input[type="text"] {
+  padding: 12px 16px;
+  font-size: 1rem;
+}
+
+.form-actions {
+  display: flex;
+  gap: 14px;
+  margin-left: auto;
+  align-items: flex-end;
+}
+
+.form-actions button {
+  min-width: 160px;
+  padding: 12px 22px;
+  font-size: 1rem;
 }
 
 #twitchInput:not(.input--locked):is(:focus, :focus-visible) {
@@ -253,7 +310,7 @@ button.is-busy.button--connect::after {
 
 .button--connect,
 #disconnectBtn {
-  width: 140px;
+  min-width: 160px;
 }
 
 #status {
