@@ -1,4 +1,5 @@
 import asyncio
+import os
 import logging
 from pathlib import Path
 from typing import Any
@@ -6,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 from app.auth.routes import router as auth_router
 from app.chat_sources.kick import KickChatClient
@@ -19,7 +21,24 @@ logger = logging.getLogger("combined_chat")
 app = FastAPI(title="Combined Twitch & Kick Chat")
 
 static_dir = Path(__file__).resolve().parent.parent / "static"
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+class BoundedCacheStaticFiles(StaticFiles):
+    """Static file handler that keeps cache lifetime short for easier deploys."""
+
+    def __init__(self, *args, max_age: int = 60, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._max_age = max_age
+
+    def set_response_headers(
+        self, response: Response, file: Path, stat_result: "os.stat_result", scope: dict
+    ) -> None:
+        super().set_response_headers(response, file, stat_result, scope)
+        response.headers["Cache-Control"] = f"public, max-age={self._max_age}"
+        response.headers["Expires"] = "0"
+
+
+app.mount("/static", BoundedCacheStaticFiles(directory=static_dir), name="static")
 app.include_router(auth_router)
 app.include_router(chat_router)
 
@@ -34,7 +53,10 @@ async def index() -> HTMLResponse:
     html_path = static_dir / "index.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="Frontend not found")
-    return HTMLResponse(html_path.read_text())
+    return HTMLResponse(
+        html_path.read_text(),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.websocket("/ws")
