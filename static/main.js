@@ -61,7 +61,7 @@ const moderationSuccessSuffix = {
 };
 let moderationMenuTarget = null;
 let moderationMenuAnchor = null;
-const sendButtonPlatformClasses = ["button--twitch", "button--kick", "button--neutral"];
+const sendButtonPlatformClasses = ["button--twitch", "button--kick", "button--dual", "button--neutral"];
 const messageInputPlatformClasses = [
   "message-input--twitch",
   "message-input--kick",
@@ -137,12 +137,17 @@ function hasAccount(platform) {
 function buildPlatformOptions() {
   const options = [];
   const twitchChannel = twitchInput.value.trim();
-  if (twitchChannel && hasAccount("twitch")) {
+  const twitchReady = twitchChannel && hasAccount("twitch");
+  if (twitchReady) {
     options.push({ value: "twitch", label: `Twitch (#${twitchChannel})` });
   }
   const kickChannel = kickInput.value.trim();
-  if (kickChannel && hasAccount("kick")) {
+  const kickReady = kickChannel && hasAccount("kick");
+  if (kickReady) {
     options.push({ value: "kick", label: `Kick (${kickChannel})` });
+  }
+  if (twitchReady && kickReady) {
+    options.push({ value: "both", label: "Twitch + Kick (send to both)" });
   }
   return options;
 }
@@ -153,7 +158,9 @@ function applySendButtonStyle(platform) {
       ? "button--twitch"
       : platform === "kick"
         ? "button--kick"
-        : "button--neutral";
+        : platform === "both"
+          ? "button--dual"
+          : "button--neutral";
   sendButton.classList.remove(...sendButtonPlatformClasses);
   sendButton.classList.add(buttonClass);
   sendButton.dataset.platform = platform || "";
@@ -1223,8 +1230,31 @@ async function sendMessage() {
     return;
   }
 
-  const channel = platform === "twitch" ? twitchInput.value.trim() : kickInput.value.trim();
-  if (!channel) {
+  const formatPlatformLabel = (value) => {
+    if (value === "twitch") {
+      return "Twitch";
+    }
+    if (value === "kick") {
+      return "Kick";
+    }
+    return value;
+  };
+
+  const targets =
+    platform === "both"
+      ? [
+          { platform: "twitch", channel: twitchInput.value.trim() },
+          { platform: "kick", channel: kickInput.value.trim() },
+        ]
+      : [{ platform, channel: platform === "twitch" ? twitchInput.value.trim() : kickInput.value.trim() }];
+
+  if (platform === "both") {
+    const missing = targets.filter((target) => !target.channel).map((target) => target.platform);
+    if (missing.length) {
+      setStatus("Enter both Twitch and Kick channels before sending.");
+      return;
+    }
+  } else if (!targets[0].channel) {
     setStatus(`Enter a ${platform} channel before sending.`);
     return;
   }
@@ -1240,28 +1270,61 @@ async function sendMessage() {
   platformSelect.disabled = true;
 
   try {
-    const response = await fetch("/chat/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ platform, channel, message }),
-    });
+    const successes = [];
+    const failures = [];
 
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}));
-      const detail =
-        errorBody && errorBody.detail
-          ? errorBody.detail
-          : response.statusText || "Unknown error";
-      const detailText =
-        typeof detail === "string" ? detail : JSON.stringify(detail);
-      setStatus(`Failed to send: ${detailText}`);
+    for (const target of targets) {
+      try {
+        const response = await fetch("/chat/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ platform: target.platform, channel: target.channel, message }),
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({}));
+          const detail =
+            errorBody && errorBody.detail
+              ? errorBody.detail
+              : response.statusText || "Unknown error";
+          const detailText =
+            typeof detail === "string" ? detail : JSON.stringify(detail);
+          failures.push({ platform: target.platform, detail: detailText });
+          console.error(
+            `Failed to send chat message via ${target.platform}: ${detailText}`
+          );
+          continue;
+        }
+
+        successes.push(target.platform);
+      } catch (err) {
+        console.error(`Network error while sending via ${target.platform}`, err);
+        failures.push({ platform: target.platform, detail: "Network error" });
+      }
+    }
+
+    if (failures.length) {
+      const failure = failures[0];
+      const failureLabel = formatPlatformLabel(failure.platform);
+      if (successes.length) {
+        const successLabel = successes.map((value) => formatPlatformLabel(value)).join(" and ");
+        setStatus(
+          `Message sent via ${successLabel}, but failed via ${failureLabel}: ${failure.detail}`
+        );
+      } else {
+        setStatus(`Failed to send via ${failureLabel}: ${failure.detail}`);
+      }
       return;
     }
 
     messageInput.value = "";
-    const prettyPlatform = `${platform.charAt(0).toUpperCase()}${platform.slice(1)}`;
-    setStatus(`Message sent via ${prettyPlatform}.`);
+    if (targets.length === 2) {
+      setStatus("Message sent to Twitch and Kick.");
+    } else {
+      const prettyPlatform = formatPlatformLabel(targets[0].platform);
+      setStatus(`Message sent via ${prettyPlatform}.`);
+    }
   } catch (err) {
     console.error("Failed to send chat message", err);
     setStatus("Network error while sending chat message.");

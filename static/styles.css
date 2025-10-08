@@ -293,6 +293,11 @@ button.is-busy.button--connect::after {
   --btn-shadow: var(--kick-shadow);
 }
 
+.button--dual {
+  --btn-bg: linear-gradient(135deg, #9146ff 0%, #53fc18 100%);
+  --btn-shadow: rgba(145, 70, 255, 0.4);
+}
+
 .button--danger {
   --btn-bg: var(--danger-red);
   --btn-shadow: var(--danger-shadow);
