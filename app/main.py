@@ -38,7 +38,11 @@ class BoundedCacheStaticFiles(StaticFiles):
         response.headers["Expires"] = "0"
 
 
-app.mount("/static", BoundedCacheStaticFiles(directory=static_dir), name="static")
+app.mount(
+    "/static",
+    BoundedCacheStaticFiles(directory=static_dir, max_age=12 * 60 * 60),
+    name="static",
+)
 app.include_router(auth_router)
 app.include_router(chat_router)
 
