@@ -139,7 +139,7 @@ function buildPlatformOptions() {
   const twitchChannel = twitchInput.value.trim();
   const twitchReady = twitchChannel && hasAccount("twitch");
   if (twitchReady) {
-    options.push({ value: "twitch", label: `Twitch (#${twitchChannel})` });
+    options.push({ value: "twitch", label: `Twitch (${twitchChannel})` });
   }
   const kickChannel = kickInput.value.trim();
   const kickReady = kickChannel && hasAccount("kick");
