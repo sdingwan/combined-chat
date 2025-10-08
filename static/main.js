@@ -292,12 +292,12 @@ function updatePauseBanner() {
     chatPauseLabel.textContent = "Chat Paused Due to Scroll";
   }
   const hasUnread = unreadCount > 0;
-  chatResumeButton.disabled = !hasUnread;
+  chatResumeButton.disabled = false;
   chatResumeButton.textContent = hasUnread
     ? unreadCount === 1
       ? "Show 1 new message"
       : `Show ${unreadCount} new messages`
-    : "Show new messages";
+    : "\u2193 Back to bottom";
 }
 
 function bufferIncomingMessage(payload) {
