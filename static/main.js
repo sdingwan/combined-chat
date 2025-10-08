@@ -28,6 +28,115 @@ let unreadBufferedCount = 0;
 let pausedForScroll = false;
 let suppressScrollHandler = false;
 const currentChannels = { twitch: "", kick: "" };
+
+const storageKey = "combinedChatState";
+
+function createDefaultPersistedState() {
+  return {
+    connected: false,
+    channels: { twitch: "", kick: "" },
+    messages: [],
+  };
+}
+
+let persistedState = createDefaultPersistedState();
+let hydratingMessages = false;
+let persistenceAvailable = false;
+
+try {
+  persistenceAvailable =
+    typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+} catch (err) {
+  persistenceAvailable = false;
+}
+
+function sanitizePersistedMessages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+  const sanitized = [];
+  messages.forEach((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+    try {
+      const clone = JSON.parse(JSON.stringify(entry));
+      sanitized.push(clone);
+    } catch (err) {
+      // Ignore entries that cannot be serialized
+    }
+  });
+  const startIndex = Math.max(0, sanitized.length - maxMessages);
+  return sanitized.slice(startIndex);
+}
+
+function loadPersistedState() {
+  if (!persistenceAvailable) {
+    return;
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return;
+    }
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object") {
+      return;
+    }
+    const nextState = createDefaultPersistedState();
+    nextState.connected = Boolean(data.connected);
+    if (data.channels && typeof data.channels === "object") {
+      nextState.channels.twitch =
+        typeof data.channels.twitch === "string" ? data.channels.twitch : "";
+      nextState.channels.kick =
+        typeof data.channels.kick === "string" ? data.channels.kick : "";
+    }
+    nextState.messages = sanitizePersistedMessages(data.messages);
+    persistedState = nextState;
+  } catch (err) {
+    persistenceAvailable = false;
+    console.warn("Failed to load persisted chat state", err);
+  }
+}
+
+function savePersistedState() {
+  if (!persistenceAvailable) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(persistedState));
+  } catch (err) {
+    persistenceAvailable = false;
+    console.warn("Failed to persist chat state", err);
+  }
+}
+
+function clearPersistedMessages() {
+  persistedState.messages = [];
+}
+
+function recordMessageForPersistence(payload) {
+  if (!persistenceAvailable) {
+    return;
+  }
+  let clone;
+  try {
+    clone = JSON.parse(JSON.stringify(payload));
+  } catch (err) {
+    console.warn("Failed to store chat message", err);
+    return;
+  }
+  persistedState.messages.push(clone);
+  if (persistedState.messages.length > maxMessages) {
+    const excess = persistedState.messages.length - maxMessages;
+    persistedState.messages.splice(0, excess);
+  }
+  savePersistedState();
+}
+
+if (persistenceAvailable) {
+  loadPersistedState();
+}
 const moderationOptions = [
   { action: "ban", label: "🚫", ariaLabel: "Ban user", variant: "danger", isIcon: true },
   { action: "timeout",
@@ -416,13 +525,17 @@ function disableMessageInput() {
   updateMessageControls();
 }
 
-function clearChat() {
+function clearChat({ resetPersisted = false } = {}) {
   chatEl.innerHTML = "";
   bufferedMessages.length = 0;
   unreadBufferedCount = 0;
   pausedForScroll = false;
   updatePauseBanner();
   scrollToBottom();
+  if (resetPersisted) {
+    clearPersistedMessages();
+    savePersistedState();
+  }
 }
 
 function hideModerationMenu() {
@@ -873,6 +986,9 @@ function addMessageToDom(payload) {
   const element = createMessageElement(payload);
   chatEl.appendChild(element);
   enforceMessageLimit();
+  if (!hydratingMessages) {
+    recordMessageForPersistence(payload);
+  }
   positionModerationMenu();
 }
 
@@ -969,7 +1085,8 @@ function twitchEmoteUrl(id) {
 
 disconnectBtn.disabled = true;
 
-function connect() {
+function connect(options = {}) {
+  const preserveMessages = Boolean(options && options.preserveMessages);
   const twitch = twitchInput.value.trim();
   const kick = kickInput.value.trim();
 
@@ -979,7 +1096,19 @@ function connect() {
   }
 
   hideModerationMenu();
-  clearChat();
+  const previousTwitch = currentChannels.twitch || "";
+  const previousKick = currentChannels.kick || "";
+  const channelsChanged = twitch !== previousTwitch || kick !== previousKick;
+
+  if (!preserveMessages && channelsChanged) {
+    clearChat({ resetPersisted: true });
+  }
+  if (!preserveMessages && !channelsChanged && persistenceAvailable) {
+    // Ensure persisted state reflects current values without dropping messages
+    persistedState.channels.twitch = twitch;
+    persistedState.channels.kick = kick;
+    savePersistedState();
+  }
   setStatus("Connecting…");
   setButtonBusy(connectBtn, true, "Connecting…");
   setButtonBusy(disconnectBtn, false);
@@ -987,6 +1116,11 @@ function connect() {
 
   currentChannels.twitch = twitch;
   currentChannels.kick = kick;
+  if (persistenceAvailable) {
+    persistedState.channels.twitch = twitch;
+    persistedState.channels.kick = kick;
+    savePersistedState();
+  }
 
   if (socket) {
     socket.close();
@@ -1006,6 +1140,12 @@ function connect() {
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = false;
     markConnected();
+    if (persistenceAvailable) {
+      persistedState.connected = true;
+      persistedState.channels.twitch = twitch;
+      persistedState.channels.kick = kick;
+      savePersistedState();
+    }
     activeSocket.send(
       JSON.stringify({
         action: "subscribe",
@@ -1034,6 +1174,10 @@ function connect() {
     if (socket === activeSocket) {
       socket = null;
     }
+    if (persistenceAvailable) {
+      persistedState.connected = false;
+      savePersistedState();
+    }
     setStatus("Disconnected.");
     disableMessageInput();
     hideModerationMenu();
@@ -1049,6 +1193,10 @@ function connect() {
     }
     if (socket === activeSocket) {
       socket = null;
+    }
+    if (persistenceAvailable) {
+      persistedState.connected = false;
+      savePersistedState();
     }
     setStatus("WebSocket error encountered.");
     setButtonBusy(connectBtn, false);
@@ -1088,6 +1236,10 @@ logoutBtn.addEventListener("click", async () => {
     console.warn("Logout failed", err);
   }
   authState = { authenticated: false, accounts: [], user: null };
+  if (persistenceAvailable) {
+    persistedState = createDefaultPersistedState();
+    savePersistedState();
+  }
   await refreshAuthStatus();
 });
 
@@ -1195,7 +1347,52 @@ disconnectBtn.addEventListener("click", () => {
   disableMessageInput();
   hideModerationMenu();
   resetConnectState();
+  if (persistenceAvailable) {
+    persistedState.connected = false;
+    savePersistedState();
+  }
 });
+
+function restoreFromPersistedState() {
+  if (!persistenceAvailable) {
+    return;
+  }
+  const channels = persistedState.channels || {};
+  if (twitchInput) {
+    twitchInput.value = channels.twitch || "";
+  }
+  if (kickInput) {
+    kickInput.value = channels.kick || "";
+  }
+  currentChannels.twitch = channels.twitch || "";
+  currentChannels.kick = channels.kick || "";
+
+  if (persistedState.messages && persistedState.messages.length) {
+    hydratingMessages = true;
+    persistedState.messages.forEach((message) => {
+      addMessageToDom(message);
+    });
+    hydratingMessages = false;
+    scrollToBottom();
+    updatePauseBanner();
+  }
+
+  if (
+    persistedState.connected &&
+    (channels.twitch || channels.kick) &&
+    (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING)
+  ) {
+    setTimeout(() => {
+      if (
+        !socket ||
+        socket.readyState === WebSocket.CLOSED ||
+        socket.readyState === WebSocket.CLOSING
+      ) {
+        connect({ preserveMessages: true });
+      }
+    }, 0);
+  }
+}
 
 // Message input event listeners
 messageInput.addEventListener("keypress", (event) => {
@@ -1348,6 +1545,7 @@ async function sendMessage() {
   }
 }
 
+restoreFromPersistedState();
 applySendButtonStyle("");
 updateMessageControls();
 refreshAuthStatus();
