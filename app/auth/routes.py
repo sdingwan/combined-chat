@@ -261,6 +261,7 @@ async def oauth_login(
     if platform is OAuthPlatform.KICK:
         code_verifier, code_challenge = _generate_pkce_pair()
     state_token = await create_state(
+        db=db,
         platform=platform,
         session_id=context.session.id if context else None,
         redirect_path=redirect_path,
@@ -317,7 +318,9 @@ async def twitch_callback(
         raise HTTPException(status_code=400, detail="Missing OAuth parameters")
 
     state_record = await consume_state(
-        platform=OAuthPlatform.TWITCH, state_token=state
+        db=db,
+        platform=OAuthPlatform.TWITCH,
+        state_token=state,
     )
     if not state_record:
         raise HTTPException(status_code=400, detail="Invalid or expired state")
@@ -381,7 +384,9 @@ async def kick_callback(
         raise HTTPException(status_code=400, detail="Missing OAuth parameters")
 
     state_record = await consume_state(
-        platform=OAuthPlatform.KICK, state_token=state
+        db=db,
+        platform=OAuthPlatform.KICK,
+        state_token=state,
     )
     if not state_record:
         raise HTTPException(status_code=400, detail="Invalid or expired state")

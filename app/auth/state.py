@@ -4,15 +4,18 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
+from typing import Optional
+
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import OAuthPlatform
+from app.models import OAuthPlatform, OAuthState
 
 
 @dataclass
 class StateRecord:
-    """In-memory representation of a pending OAuth state."""
+    """Transient representation of a pending OAuth state."""
 
     platform: OAuthPlatform
     session_id: Optional[str]
@@ -21,15 +24,13 @@ class StateRecord:
     expires_at: datetime
 
 
-_STATE_STORE: Dict[str, StateRecord] = {}
-
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 async def create_state(
     *,
+    db: AsyncSession,
     platform: OAuthPlatform,
     session_id: Optional[str],
     redirect_path: Optional[str] = None,
@@ -39,29 +40,48 @@ async def create_state(
 
     state_token = secrets.token_urlsafe(32)
     expires_at = _now() + timedelta(seconds=settings.oauth_state_ttl_seconds)
-    _STATE_STORE[state_token] = StateRecord(
+
+    await db.execute(delete(OAuthState).where(OAuthState.expires_at <= _now()))
+
+    record = OAuthState(
+        token=state_token,
         platform=platform,
         session_id=session_id,
         redirect_path=redirect_path,
         code_verifier=code_verifier,
         expires_at=expires_at,
     )
+    db.add(record)
+    await db.commit()
     return state_token
 
 
 async def consume_state(
-    *, platform: OAuthPlatform, state_token: str
+    *, db: AsyncSession, platform: OAuthPlatform, state_token: str
 ) -> Optional[StateRecord]:
     """Validate and remove an OAuth state entry."""
 
-    record = _STATE_STORE.pop(state_token, None)
-    if not record:
+    result = await db.execute(select(OAuthState).where(OAuthState.token == state_token))
+    stored = result.scalar_one_or_none()
+    if not stored:
         return None
-    if record.platform is not platform:
+
+    await db.delete(stored)
+    await db.commit()
+
+    if stored.platform is not platform:
         return None
-    expires_at = record.expires_at
+
+    expires_at = stored.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if expires_at <= _now():
         return None
-    return record
+
+    return StateRecord(
+        platform=stored.platform,
+        session_id=stored.session_id,
+        redirect_path=stored.redirect_path,
+        code_verifier=stored.code_verifier,
+        expires_at=expires_at,
+    )

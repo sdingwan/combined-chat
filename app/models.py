@@ -90,3 +90,24 @@ class Session(Base):
 
     twitch_user: Mapped[Optional[TwitchUser]] = relationship(back_populates="sessions")
     kick_user: Mapped[Optional[KickUser]] = relationship(back_populates="sessions")
+    oauth_states: Mapped[list["OAuthState"]] = relationship(back_populates="session")
+
+
+class OAuthState(Base):
+    """Persisted OAuth state tokens to support multi-worker deployments."""
+
+    __tablename__ = "oauth_states"
+
+    token: Mapped[str] = mapped_column(String(128), primary_key=True)
+    platform: Mapped[OAuthPlatform] = mapped_column(Enum(OAuthPlatform), nullable=False)
+    session_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    redirect_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    code_verifier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    session: Mapped[Optional[Session]] = relationship(back_populates="oauth_states")
