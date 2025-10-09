@@ -318,13 +318,6 @@ button.is-busy.button--connect::after {
   min-width: 160px;
 }
 
-#status {
-  min-height: 6px;
-  font-size: 0.9rem;
-  color: #bcb9ff;
-  padding: 0 6px;
-}
-
 .chat-area {
   position: relative;
 }
@@ -411,8 +404,16 @@ button.is-busy.button--connect::after {
   padding: 6px 8px;
   word-break: break-word;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: transparent;
+  border: 1px solid transparent;
+  position: relative;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.message:hover,
+.message:focus-within {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .message .meta {
@@ -470,6 +471,76 @@ button.is-busy.button--connect::after {
 
 .message .username:hover {
   text-decoration: underline;
+}
+
+.message .reply-button {
+  position: absolute;
+  right: 12px;
+  top: -14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(30, 30, 36, 0.95);
+  color: rgba(226, 232, 240, 0.92);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  opacity: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  z-index: 1;
+}
+
+.message .reply-button:hover {
+  background: rgba(58, 64, 102, 0.95);
+  transform: translateY(-1px);
+}
+
+.message .reply-button:focus-visible {
+  outline: 2px solid rgba(129, 140, 248, 0.6);
+  outline-offset: 2px;
+  opacity: 1;
+}
+
+.message:hover .reply-button,
+.message.message--reply-target .reply-button {
+  opacity: 0.85;
+}
+
+.message.message--reply-target {
+  border-color: rgba(129, 140, 248, 0.5);
+  background: rgba(67, 56, 202, 0.18);
+  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.35);
+}
+
+.message .reply-context {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: rgba(203, 213, 225, 0.85);
+  margin-bottom: 4px;
+  letter-spacing: 0.01em;
+}
+
+.message .reply-context__icon {
+  opacity: 0.8;
+}
+
+.message .reply-context__label {
+  font-weight: 600;
+  color: rgba(191, 219, 254, 0.95);
+}
+
+.message .reply-context__snippet {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(226, 232, 240, 0.9);
 }
 
 .platform-tag {
@@ -612,6 +683,81 @@ button.is-busy.button--connect::after {
   color: #f87171;
 }
 
+.reply-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #1e1b4b;
+  border: none;
+  border-top: 1px solid rgba(129, 140, 248, 0.35);
+  border-radius: 12px 12px 0 0;
+  padding: 14px 16px;
+  margin-top: auto;
+  margin-bottom: -19px;
+  color: rgba(226, 232, 240, 0.95);
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+.reply-preview-spacer {
+  flex-shrink: 0;
+  height: 12px;
+  pointer-events: none;
+}
+
+.reply-preview__icon {
+  font-size: 1.2rem;
+  opacity: 0.85;
+}
+
+.reply-preview__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reply-preview__label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 0.01em;
+}
+
+.reply-preview__message {
+  font-size: 0.85rem;
+  color: rgba(203, 213, 225, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reply-preview__close {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: rgba(226, 232, 240, 0.85);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.reply-preview__close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+.reply-preview__close:focus-visible {
+  outline: 2px solid rgba(129, 140, 248, 0.6);
+  outline-offset: 2px;
+}
+
 .hidden {
   display: none !important;
 }
@@ -659,6 +805,7 @@ button.is-busy.button--connect::after {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+  margin-top: 16px;
 }
 
 #platformSelect {

@@ -35,7 +35,33 @@
       </form>
 
       <div class="chat-area">
-        <div id="chat"></div>
+        <div id="chat">
+          <div
+            id="replyPreviewSpacer"
+            class="reply-preview-spacer hidden"
+            aria-hidden="true"
+          ></div>
+          <div
+            id="replyPreview"
+            class="reply-preview hidden"
+            role="status"
+            aria-live="polite"
+          >
+            <div class="reply-preview__icon" aria-hidden="true">↩</div>
+            <div class="reply-preview__body">
+              <div id="replyPreviewLabel" class="reply-preview__label"></div>
+              <div id="replyPreviewMessage" class="reply-preview__message"></div>
+            </div>
+            <button
+              id="replyCancelButton"
+              class="reply-preview__close"
+              type="button"
+              aria-label="Cancel reply"
+            >
+              ×
+            </button>
+          </div>
+        </div>
         <div
           id="chatPauseBanner"
           class="chat-pause-banner hidden"
@@ -48,7 +74,6 @@
           </button>
         </div>
       </div>
-      <div id="status">Waiting for connection…</div>
       <div class="message-input-container">
         <select id="platformSelect" disabled>
           <option value="">Select platform</option>
