@@ -687,12 +687,24 @@ button.is-busy.button--connect::after {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(30, 27, 75, 0.55);
-  border: 1px solid rgba(129, 140, 248, 0.35);
-  border-radius: 10px;
-  padding: 10px 14px;
-  margin: 4px 0 12px;
+  background: #1e1b4b;
+  border: none;
+  border-top: 1px solid rgba(129, 140, 248, 0.35);
+  border-radius: 12px 12px 0 0;
+  padding: 14px 16px;
+  margin-top: auto;
+  margin-bottom: -19px;
   color: rgba(226, 232, 240, 0.95);
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+.reply-preview-spacer {
+  flex-shrink: 0;
+  height: 12px;
+  pointer-events: none;
 }
 
 .reply-preview__icon {
@@ -793,6 +805,7 @@ button.is-busy.button--connect::after {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+  margin-top: 16px;
 }
 
 #platformSelect {

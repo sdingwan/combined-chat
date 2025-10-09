@@ -15,6 +15,7 @@ const chatPauseBanner = document.getElementById("chatPauseBanner");
 const chatPauseLabel = document.getElementById("chatPauseLabel");
 const chatResumeButton = document.getElementById("chatResumeButton");
 const replyPreview = document.getElementById("replyPreview");
+const replyPreviewSpacer = document.getElementById("replyPreviewSpacer");
 const replyPreviewLabel = document.getElementById("replyPreviewLabel");
 const replyPreviewMessage = document.getElementById("replyPreviewMessage");
 const replyCancelButton = document.getElementById("replyCancelButton");
@@ -400,7 +401,26 @@ function updateReplyPreview() {
   if (!replyPreview) {
     return;
   }
+  const wasAtBottom = isNearBottom();
+  if (chatEl) {
+    if (replyPreviewSpacer && replyPreviewSpacer.parentElement !== chatEl) {
+      chatEl.appendChild(replyPreviewSpacer);
+    }
+    if (replyPreview.parentElement !== chatEl) {
+      chatEl.appendChild(replyPreview);
+    }
+    if (
+      replyPreviewSpacer &&
+      replyPreview.parentElement === chatEl &&
+      replyPreview.previousElementSibling !== replyPreviewSpacer
+    ) {
+      chatEl.insertBefore(replyPreviewSpacer, replyPreview);
+    }
+  }
   if (!replyTarget) {
+    if (replyPreviewSpacer) {
+      replyPreviewSpacer.classList.add("hidden");
+    }
     replyPreview.classList.add("hidden");
     if (replyPreviewLabel) {
       replyPreviewLabel.textContent = "";
@@ -408,18 +428,27 @@ function updateReplyPreview() {
     if (replyPreviewMessage) {
       replyPreviewMessage.textContent = "";
     }
-    return;
+  } else {
+    const username = normalizeUsername(replyTarget.username || replyTarget.user || "");
+    if (replyPreviewLabel) {
+      replyPreviewLabel.textContent = username ? `Replying to @${username}:` : "Replying:";
+    }
+    if (replyPreviewMessage) {
+      const snippet = replyTarget.message ? truncateText(replyTarget.message, 120) : "";
+      replyPreviewMessage.textContent = snippet;
+    }
+    if (replyPreviewSpacer) {
+      replyPreviewSpacer.classList.remove("hidden");
+    }
+    replyPreview.classList.remove("hidden");
   }
-
-  const username = normalizeUsername(replyTarget.username || replyTarget.user || "");
-  if (replyPreviewLabel) {
-    replyPreviewLabel.textContent = username ? `Replying to @${username}:` : "Replying:";
+  if (wasAtBottom) {
+    pausedForScroll = false;
+    flushBufferedMessages({ snapToBottom: true });
+  } else {
+    updatePauseBanner();
   }
-  if (replyPreviewMessage) {
-    const snippet = replyTarget.message ? truncateText(replyTarget.message, 120) : "";
-    replyPreviewMessage.textContent = snippet;
-  }
-  replyPreview.classList.remove("hidden");
+  updatePauseBannerOffset();
 }
 
 function clearReplyTarget(options = {}) {
@@ -461,10 +490,6 @@ function setReplyTarget(target, element) {
   if (!hasAccount(target.platform)) {
     setStatus(
       `Link your ${platformLabel} account to reply${username ? ` to @${username}` : ""}.`
-    );
-  } else {
-    setStatus(
-      `Replying to ${username ? `@${username}` : "this message"} on ${platformLabel}.`
     );
   }
 
@@ -631,6 +656,7 @@ function updatePauseBanner() {
   }
   const paused = isChatPaused();
   chatPauseBanner.classList.toggle("hidden", !paused);
+  updatePauseBannerOffset();
   if (!paused) {
     return;
   }
@@ -645,6 +671,23 @@ function updatePauseBanner() {
       ? "Show 1 new message"
       : `Show ${unreadCount} new messages`
     : "\u2193 Back to bottom";
+}
+
+function updatePauseBannerOffset() {
+  if (!chatPauseBanner) {
+    return;
+  }
+  let bottom = 18;
+  if (replyPreview && !replyPreview.classList.contains("hidden")) {
+    const previewHeight = replyPreview.offsetHeight || 0;
+    const spacerHeight =
+      replyPreviewSpacer && !replyPreviewSpacer.classList.contains("hidden")
+        ? replyPreviewSpacer.offsetHeight || 0
+        : 0;
+    // Offset banner by preview height plus spacer and border separation.
+    bottom = Math.max(18, previewHeight + spacerHeight + 24);
+  }
+  chatPauseBanner.style.bottom = `${bottom}px`;
 }
 
 function bufferIncomingMessage(payload) {
@@ -758,7 +801,18 @@ function disableMessageInput() {
 
 function clearChat({ resetPersisted = false } = {}) {
   clearReplyTarget({ updateControls: false });
-  chatEl.innerHTML = "";
+  if (chatEl) {
+    const children = Array.from(chatEl.children);
+    children.forEach((child) => {
+      if (
+        (replyPreview && child === replyPreview) ||
+        (replyPreviewSpacer && child === replyPreviewSpacer)
+      ) {
+        return;
+      }
+      chatEl.removeChild(child);
+    });
+  }
   bufferedMessages.length = 0;
   unreadBufferedCount = 0;
   pausedForScroll = false;
@@ -1090,9 +1144,10 @@ if (chatResumeButton) {
     flushBufferedMessages({ snapToBottom: true });
   });
 }
-
 updatePauseBanner();
+updatePauseBannerOffset();
 window.addEventListener("resize", positionModerationMenu);
+window.addEventListener("resize", updatePauseBannerOffset);
 
 document.addEventListener("click", (event) => {
   if (moderationMenu.classList.contains("hidden")) {
@@ -1120,7 +1175,6 @@ if (replyCancelButton) {
   replyCancelButton.addEventListener("click", () => {
     if (replyTarget) {
       clearReplyTarget();
-      setStatus("Reply cancelled.");
     } else {
       clearReplyTarget();
     }
@@ -1280,23 +1334,43 @@ function enforceMessageLimit() {
   if (!chatEl) {
     return;
   }
-  while (chatEl.children.length > maxMessages) {
-    const firstChild = chatEl.firstChild;
-    if (!firstChild) {
+  let messageCount = 0;
+  const children = Array.from(chatEl.children);
+  children.forEach((child) => {
+    if (
+      (replyPreview && child === replyPreview) ||
+      (replyPreviewSpacer && child === replyPreviewSpacer)
+    ) {
+      return;
+    }
+    messageCount += 1;
+  });
+  if (messageCount <= maxMessages) {
+    return;
+  }
+  for (const child of children) {
+    if (
+      (replyPreview && child === replyPreview) ||
+      (replyPreviewSpacer && child === replyPreviewSpacer)
+    ) {
+      continue;
+    }
+    if (messageCount <= maxMessages) {
       break;
     }
     if (
       moderationMenuAnchor &&
-      firstChild instanceof HTMLElement &&
-      firstChild.contains(moderationMenuAnchor)
+      child instanceof HTMLElement &&
+      child.contains(moderationMenuAnchor)
     ) {
       hideModerationMenu();
     }
-    if (replyTargetElement && firstChild === replyTargetElement) {
+    if (replyTargetElement && child === replyTargetElement) {
       replyTargetElement.classList.remove("message--reply-target");
       replyTargetElement = null;
     }
-    chatEl.removeChild(firstChild);
+    chatEl.removeChild(child);
+    messageCount -= 1;
   }
 }
 
@@ -1305,7 +1379,13 @@ function addMessageToDom(payload) {
     return;
   }
   const element = createMessageElement(payload);
-  chatEl.appendChild(element);
+  if (replyPreviewSpacer && replyPreviewSpacer.parentElement === chatEl) {
+    chatEl.insertBefore(element, replyPreviewSpacer);
+  } else if (replyPreview && replyPreview.parentElement === chatEl) {
+    chatEl.insertBefore(element, replyPreview);
+  } else {
+    chatEl.appendChild(element);
+  }
   enforceMessageLimit();
   if (
     replyTarget &&
@@ -1877,12 +1957,6 @@ async function sendMessage() {
 
     messageInput.value = "";
     clearReplyTarget({ updateControls: false });
-    if (targets.length === 2) {
-      setStatus("Message sent to Twitch and Kick.");
-    } else {
-      const prettyPlatform = formatPlatformLabel(targets[0].platform);
-      setStatus(`Message sent via ${prettyPlatform}.`);
-    }
   } catch (err) {
     console.error("Failed to send chat message", err);
     setStatus("Network error while sending chat message.", { type: "error" });
