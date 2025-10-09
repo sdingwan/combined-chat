@@ -193,7 +193,32 @@ class KickChatClient:
             "message": content,
         }
 
+        message_id = data.get("id") or data.get("chat_id") or data.get("uuid")
+        if message_id is not None:
+            payload["id"] = str(message_id)
+
         if user_id:
             payload["user_id"] = user_id
+
+        reply_source = (
+            data.get("reply_to")
+            or data.get("replied_to")
+            or (data.get("metadata") or {}).get("reply_to")
+        )
+        if isinstance(reply_source, dict):
+            reply_msg = reply_source.get("message") or reply_source.get("content") or ""
+            reply_user = reply_source.get("username") or reply_source.get("user") or ""
+            reply_user_id = reply_source.get("user_id") or reply_source.get("id") or ""
+            reply_message_id = (
+                reply_source.get("id")
+                or reply_source.get("message_id")
+                or reply_source.get("chat_message_id")
+            )
+            payload["reply"] = {
+                "message_id": str(reply_message_id) if reply_message_id is not None else "",
+                "user": str(reply_user) if reply_user is not None else "",
+                "user_id": str(reply_user_id) if reply_user_id is not None else "",
+                "message": str(reply_msg) if reply_msg is not None else "",
+            }
 
         return payload

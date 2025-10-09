@@ -49,6 +49,26 @@
         </div>
       </div>
       <div id="status">Waiting for connection…</div>
+      <div
+        id="replyPreview"
+        class="reply-preview hidden"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="reply-preview__icon" aria-hidden="true">↩</div>
+        <div class="reply-preview__body">
+          <div id="replyPreviewLabel" class="reply-preview__label"></div>
+          <div id="replyPreviewMessage" class="reply-preview__message"></div>
+        </div>
+        <button
+          id="replyCancelButton"
+          class="reply-preview__close"
+          type="button"
+          aria-label="Cancel reply"
+        >
+          ×
+        </button>
+      </div>
       <div class="message-input-container">
         <select id="platformSelect" disabled>
           <option value="">Select platform</option>

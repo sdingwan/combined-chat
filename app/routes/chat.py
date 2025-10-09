@@ -28,10 +28,17 @@ KICK_CHANNELS_ENDPOINT = "https://api.kick.com/public/v1/channels"
 KICK_BAN_ENDPOINT = "https://api.kick.com/public/v1/moderation/bans"
 
 
+class ReplyContext(BaseModel):
+    message_id: str = Field(min_length=1, max_length=128)
+    user_id: Optional[str] = Field(default=None, max_length=128)
+    username: Optional[str] = Field(default=None, max_length=128)
+
+
 class SendChatRequest(BaseModel):
     platform: OAuthPlatform
     channel: str = Field(min_length=1, max_length=64)
     message: str = Field(min_length=1, max_length=500)
+    reply_to: Optional[ReplyContext] = None
 
 
 class SendChatResponse(BaseModel):
@@ -120,12 +127,24 @@ async def send_chat_message(
         account = context.twitch_user
         if not account:
             raise HTTPException(status_code=400, detail="No linked account for platform")
-        await _send_twitch_message(db, account, payload.channel, payload.message)
+        await _send_twitch_message(
+            db,
+            account,
+            payload.channel,
+            payload.message,
+            payload.reply_to,
+        )
     elif payload.platform is OAuthPlatform.KICK:
         account = context.kick_user
         if not account:
             raise HTTPException(status_code=400, detail="No linked account for platform")
-        await _send_kick_message(db, account, payload.channel, payload.message)
+        await _send_kick_message(
+            db,
+            account,
+            payload.channel,
+            payload.message,
+            payload.reply_to,
+        )
     else:
         raise HTTPException(status_code=400, detail="Unsupported platform")
 
@@ -295,6 +314,7 @@ async def _send_twitch_message(
     account: TwitchUser,
     channel: str,
     message: str,
+    reply_to: Optional[ReplyContext],
 ) -> None:
     if not settings.twitch_client_id or not settings.twitch_client_secret:
         raise HTTPException(status_code=503, detail="Twitch OAuth not configured")
@@ -313,6 +333,10 @@ async def _send_twitch_message(
         "sender_id": sender_id,
         "message": message,
     }
+    if reply_to and reply_to.message_id:
+        payload["reply_parent_message_id"] = reply_to.message_id
+        if reply_to.user_id:
+            payload["reply_parent_user_id"] = reply_to.user_id
 
     async with httpx.AsyncClient(timeout=10) as client:
         response = await client.post(TWITCH_CHAT_ENDPOINT, json=payload, headers=headers)
@@ -510,6 +534,7 @@ async def _send_kick_message(
     account: KickUser,
     channel: str,
     message: str,
+    reply_to: Optional[ReplyContext],
 ) -> None:
     slug = _normalise_kick_slug(channel)
     broadcaster_id = await _resolve_kick_broadcaster(db, account, slug)
@@ -519,6 +544,9 @@ async def _send_kick_message(
         "content": message,
         "broadcaster_user_id": broadcaster_id,
     }
+    if reply_to and reply_to.message_id:
+        chat_body["reply_to_message_id"] = reply_to.message_id
+
     response = await _kick_request(
         db,
         account,
