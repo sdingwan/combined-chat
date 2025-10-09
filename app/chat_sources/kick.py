@@ -73,7 +73,7 @@ class KickChatClient:
                 {
                     "platform": "kick",
                     "type": "status",
-                    "message": f"Stopped listening to {self.channel}",
+                    "message": f"Disconnected from Kick chat for {self.channel}",
                 }
             )
 
@@ -103,7 +103,7 @@ class KickChatClient:
                         {
                             "platform": "kick",
                             "type": "status",
-                            "message": f"Listening to Kick chat for {self.channel}",
+                            "message": f"Connected to Kick chat for {self.channel}",
                         }
                     )
             elif event == "pusher:ping":

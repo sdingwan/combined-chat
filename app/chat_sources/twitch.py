@@ -40,7 +40,7 @@ class TwitchChatClient:
                 {
                     "platform": "twitch",
                     "type": "status",
-                    "message": f"Listening to Twitch chat for #{self.channel}",
+                    "message": f"Connected to Twitch chat for {self.channel}",
                 }
             )
 
@@ -83,7 +83,7 @@ class TwitchChatClient:
                 {
                     "platform": "twitch",
                     "type": "status",
-                    "message": f"Stopped listening to #{self.channel}",
+                    "message": f"Disconnected from Twitch chat for {self.channel}",
                 }
             )
 

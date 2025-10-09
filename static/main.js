@@ -1,7 +1,6 @@
 const form = document.getElementById("channelForm");
 const twitchInput = document.getElementById("twitchInput");
 const kickInput = document.getElementById("kickInput");
-const statusEl = document.getElementById("status");
 const chatEl = document.getElementById("chat");
 const connectBtn = document.getElementById("connectBtn");
 const disconnectBtn = document.getElementById("disconnectBtn");
@@ -238,8 +237,79 @@ function resetConnectState() {
   connectBtn.disabled = false;
 }
 
-function setStatus(message) {
-  statusEl.textContent = message;
+function announceDisconnectStatus() {
+  const notices = [];
+  if (currentChannels.kick) {
+    notices.push(`Disconnected from Kick chat for ${currentChannels.kick}`);
+  }
+  if (currentChannels.twitch) {
+    notices.push(`Disconnected from Twitch chat for ${currentChannels.twitch}`);
+  }
+  if (notices.length === 0) {
+    notices.push("Disconnected.");
+  }
+  notices.forEach((notice) => setStatus(notice));
+}
+
+function setStatus(message, options = {}) {
+  const opts = options || {};
+  const text =
+    typeof message === "string"
+      ? message.trim()
+      : message != null
+        ? String(message).trim()
+        : "";
+  if (!text) {
+    return;
+  }
+  if (opts.silent) {
+    return;
+  }
+  const type = opts.type === "error" ? "error" : "status";
+  appendMessage({ type, message: text });
+}
+
+function extractApiErrorMessage(detail, fallback = "Unknown error") {
+  if (detail == null || detail === "") {
+    return fallback;
+  }
+  if (typeof detail === "string") {
+    const trimmed = detail.trim();
+    return trimmed ? trimmed : fallback;
+  }
+  if (typeof detail === "number" || typeof detail === "boolean") {
+    return String(detail);
+  }
+  if (Array.isArray(detail)) {
+    for (const entry of detail) {
+      const message = extractApiErrorMessage(entry, "");
+      if (message) {
+        return message;
+      }
+    }
+    return fallback;
+  }
+  if (typeof detail === "object") {
+    if (typeof detail.message === "string" && detail.message.trim()) {
+      return detail.message.trim();
+    }
+    const nestedKeys = ["kick_error", "twitch_error", "error", "detail", "payload", "errors"];
+    for (const key of nestedKeys) {
+      if (Object.prototype.hasOwnProperty.call(detail, key)) {
+        const message = extractApiErrorMessage(detail[key], "");
+        if (message) {
+          return message;
+        }
+      }
+    }
+    for (const value of Object.values(detail)) {
+      const message = extractApiErrorMessage(value, "");
+      if (message) {
+        return message;
+      }
+    }
+  }
+  return fallback;
 }
 
 function hasAccount(platform) {
@@ -917,7 +987,6 @@ async function performModeration(action, duration) {
   const platformLabel = formatPlatformName(platform);
 
   try {
-    setStatus(`Sending ${decoratedAction} for ${username} on ${platformLabel}…`);
     const response = await fetch("/chat/moderate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -926,14 +995,16 @@ async function performModeration(action, duration) {
     });
 
     if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}));
-      const detail =
-        errorBody && errorBody.detail
-          ? errorBody.detail
-          : response.statusText || "Unknown error";
-      const detailText =
-        typeof detail === "string" ? detail : JSON.stringify(detail);
-      setStatus(`Moderation failed for ${decoratedAction}: ${detailText}`);
+      const errorBody = await response.json().catch(() => null);
+      const fallbackDetail = response.statusText || "Unknown error";
+      const detailSource =
+        errorBody && typeof errorBody === "object" && errorBody !== null
+          ? Object.prototype.hasOwnProperty.call(errorBody, "detail")
+            ? errorBody.detail
+            : errorBody
+          : errorBody;
+      const detailMessage = extractApiErrorMessage(detailSource, fallbackDetail);
+      setStatus(detailMessage, { type: "error" });
       return;
     }
 
@@ -955,7 +1026,7 @@ async function performModeration(action, duration) {
     }
   } catch (err) {
     console.error("Failed to send moderation request", err);
-    setStatus(`Network error while sending ${decoratedAction} request.`);
+    setStatus(`Network error while sending ${decoratedAction} request.`, { type: "error" });
   }
 }
 
@@ -1371,7 +1442,6 @@ function connect(options = {}) {
     persistedState.channels.kick = kick;
     savePersistedState();
   }
-  setStatus("Connecting…");
   setButtonBusy(connectBtn, true, "Connecting…");
   setButtonBusy(disconnectBtn, false);
   disconnectBtn.disabled = true;
@@ -1396,7 +1466,7 @@ function connect(options = {}) {
     if (event.target !== activeSocket) {
       return;
     }
-    setStatus("Connection open. Joined chats.");
+    setStatus("Connection established.", { silent: true });
     enableMessageInput();
     setButtonBusy(connectBtn, false);
     setButtonBusy(disconnectBtn, false);
@@ -1440,7 +1510,7 @@ function connect(options = {}) {
       persistedState.connected = false;
       savePersistedState();
     }
-    setStatus("Disconnected.");
+    announceDisconnectStatus();
     disableMessageInput();
     hideModerationMenu();
     setButtonBusy(connectBtn, false);
@@ -1460,7 +1530,7 @@ function connect(options = {}) {
       persistedState.connected = false;
       savePersistedState();
     }
-    setStatus("WebSocket error encountered.");
+    setStatus("WebSocket error encountered.", { type: "error" });
     setButtonBusy(connectBtn, false);
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = true;
@@ -1605,14 +1675,14 @@ disconnectBtn.addEventListener("click", () => {
     socket = null;
   } else {
     setTimeout(() => setButtonBusy(disconnectBtn, false), 200);
-  }
-  setStatus("Disconnected.");
-  disableMessageInput();
-  hideModerationMenu();
-  resetConnectState();
-  if (persistenceAvailable) {
-    persistedState.connected = false;
-    savePersistedState();
+    announceDisconnectStatus();
+    disableMessageInput();
+    hideModerationMenu();
+    resetConnectState();
+    if (persistenceAvailable) {
+      persistedState.connected = false;
+      savePersistedState();
+    }
   }
 });
 
@@ -1686,7 +1756,7 @@ async function sendMessage() {
     return;
   }
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    setStatus("WebSocket is not connected.");
+    setStatus("WebSocket is not connected.", { type: "error" });
     return;
   }
 
@@ -1767,16 +1837,18 @@ async function sendMessage() {
         });
 
         if (!response.ok) {
-          const errorBody = await response.json().catch(() => ({}));
-          const detail =
-            errorBody && errorBody.detail
-              ? errorBody.detail
-              : response.statusText || "Unknown error";
-          const detailText =
-            typeof detail === "string" ? detail : JSON.stringify(detail);
-          failures.push({ platform: target.platform, detail: detailText });
+          const errorBody = await response.json().catch(() => null);
+          const fallbackDetail = response.statusText || "Unknown error";
+          const detailSource =
+            errorBody && typeof errorBody === "object" && errorBody !== null
+              ? Object.prototype.hasOwnProperty.call(errorBody, "detail")
+                ? errorBody.detail
+                : errorBody
+              : errorBody;
+          const detailMessage = extractApiErrorMessage(detailSource, fallbackDetail);
+          failures.push({ platform: target.platform, detail: detailMessage });
           console.error(
-            `Failed to send chat message via ${target.platform}: ${detailText}`
+            `Failed to send chat message via ${target.platform}: ${detailMessage}`
           );
           continue;
         }
@@ -1794,10 +1866,11 @@ async function sendMessage() {
       if (successes.length) {
         const successLabel = successes.map((value) => formatPlatformLabel(value)).join(" and ");
         setStatus(
-          `Message sent via ${successLabel}, but failed via ${failureLabel}: ${failure.detail}`
+          `Message sent via ${successLabel}, but failed via ${failureLabel}: ${failure.detail}`,
+          { type: "error" },
         );
       } else {
-        setStatus(`Failed to send via ${failureLabel}: ${failure.detail}`);
+        setStatus(`Failed to send via ${failureLabel}: ${failure.detail}`, { type: "error" });
       }
       return;
     }
@@ -1812,7 +1885,7 @@ async function sendMessage() {
     }
   } catch (err) {
     console.error("Failed to send chat message", err);
-    setStatus("Network error while sending chat message.");
+    setStatus("Network error while sending chat message.", { type: "error" });
   } finally {
     sendingMessage = false;
     updateMessageControls();
