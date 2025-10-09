@@ -1259,7 +1259,7 @@ function createMessageElement(payload) {
         data.user ? `Reply to ${data.user}` : "Reply to message",
       );
       replyButtonEl.title = "Reply to message";
-      replyButtonEl.textContent = "↩";
+      replyButtonEl.textContent = "⤴";
       wrapper.appendChild(replyButtonEl);
     }
   } else {

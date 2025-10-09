@@ -404,9 +404,16 @@ button.is-busy.button--connect::after {
   padding: 6px 8px;
   word-break: break-word;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: transparent;
+  border: 1px solid transparent;
   position: relative;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.message:hover,
+.message:focus-within {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .message .meta {
@@ -468,14 +475,14 @@ button.is-busy.button--connect::after {
 
 .message .reply-button {
   position: absolute;
-  right: 8px;
-  top: 8px;
+  right: 12px;
+  top: -14px;
   width: 28px;
   height: 28px;
   border-radius: 999px;
   border: none;
-  background: rgba(148, 163, 184, 0.22);
-  color: rgba(226, 232, 240, 0.9);
+  background: rgba(30, 30, 36, 0.95);
+  color: rgba(226, 232, 240, 0.92);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -483,10 +490,12 @@ button.is-busy.button--connect::after {
   cursor: pointer;
   transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
   opacity: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  z-index: 1;
 }
 
 .message .reply-button:hover {
-  background: rgba(180, 190, 240, 0.35);
+  background: rgba(58, 64, 102, 0.95);
   transform: translateY(-1px);
 }
 
