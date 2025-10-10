@@ -21,7 +21,7 @@ body {
 
 body {
   margin: 0;
-  padding: 16px;
+  padding: 16px 16px 6px;
   background: #0e0e10;
   color: #efeff1;
   min-height: 100vh;
@@ -38,7 +38,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-bottom: 200px;
+  padding-bottom: 0px;
   flex: 1;
 }
 
@@ -81,13 +81,16 @@ body {
   flex-wrap: wrap;
   gap: 10px;
   justify-content: flex-end;
-  flex: 1 0 260px;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .auth-actions button {
   padding: 12px 22px;
   font-size: 0.95rem;
   min-width: 150px;
+  flex: 0 0 auto;
 }
 
 @media (max-width: 720px) {
@@ -96,9 +99,16 @@ body {
     align-items: stretch;
   }
 
+  .auth-panel__header {
+    flex: none;
+    width: 100%;
+  }
+
   .auth-actions {
     justify-content: flex-start;
     width: 100%;
+    margin-left: 0;
+    flex: none;
   }
 }
 
@@ -178,6 +188,7 @@ input[type="text"].input--locked {
   min-width: 160px;
   padding: 12px 22px;
   font-size: 1rem;
+  flex: 0 0 auto;
 }
 
 #twitchInput:not(.input--locked):is(:focus, :focus-visible) {
@@ -323,7 +334,7 @@ button.is-busy.button--connect::after {
 }
 
 #chat {
-  height: clamp(430px, 64vh, 760px);
+  height: clamp(560px, 72vh, 900px);
   min-height: 360px;
   max-height: 90vh;
   resize: vertical;
