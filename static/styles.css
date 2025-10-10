@@ -330,7 +330,6 @@ button.is-busy.button--connect::after {
   background: #0f0f11;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 16px;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
@@ -805,16 +804,16 @@ button.is-busy.button--connect::after {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
-  margin-top: 16px;
 }
 
 #platformSelect {
   min-width: 150px;
-  padding: 9px 11px;
+  padding: 10px 14px;
   border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.3);
   background: rgba(15, 23, 42, 0.8);
   color: inherit;
+  font-size: 0.95rem;
 }
 
 #platformSelect:disabled {
