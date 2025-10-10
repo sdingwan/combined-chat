@@ -831,6 +831,8 @@ function hideModerationMenu() {
   moderationMenu.style.visibility = "";
   moderationMenu.classList.add("hidden");
   moderationMenu.innerHTML = "";
+  // Reset position flag so menu can be repositioned next time
+  moderationMenu.dataset.positionFixed = "false";
 }
 
 function positionModerationMenu() {
@@ -841,6 +843,12 @@ function positionModerationMenu() {
     hideModerationMenu();
     return;
   }
+  
+  // Only reposition if we don't have a stored position or if the menu is hidden
+  if (moderationMenu.dataset.positionFixed === "true") {
+    return;
+  }
+  
   const rect = moderationMenuAnchor.getBoundingClientRect();
   const bounds = moderationMenu.getBoundingClientRect();
   const menuWidth = bounds.width || moderationMenu.offsetWidth || 0;
@@ -863,6 +871,9 @@ function positionModerationMenu() {
   }
   moderationMenu.style.left = `${Math.round(left)}px`;
   moderationMenu.style.top = `${Math.round(top)}px`;
+  
+  // Mark position as fixed so it won't move with new messages
+  moderationMenu.dataset.positionFixed = "true";
 }
 
 function showModerationMenu(anchor, metadata) {
@@ -877,6 +888,9 @@ function showModerationMenu(anchor, metadata) {
     return;
   }
   moderationMenu.innerHTML = "";
+  
+  // Reset position flag for new menu
+  moderationMenu.dataset.positionFixed = "false";
 
   const header = document.createElement("div");
   header.classList.add("moderation-menu__header");
