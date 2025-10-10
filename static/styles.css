@@ -463,6 +463,13 @@ button.is-busy.button--connect::after {
   margin: 0 2px;
 }
 
+.reply-preview__message img.emote {
+  height: 20px;
+  width: 20px;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
 .message .username {
   cursor: pointer;
   font-weight: 600;

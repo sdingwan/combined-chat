@@ -385,6 +385,24 @@ function truncateText(value, maxLength = 140) {
   return `${raw.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
+function renderReplyPreviewContent(payload) {
+  if (!payload || !payload.message) {
+    return "";
+  }
+  const hasKickEmotes =
+    payload.platform === "kick" &&
+    typeof payload.message === "string" &&
+    /\[emote:(\d+):([^\]]+)\]/.test(payload.message);
+  const hasTwitchEmotes =
+    payload.platform === "twitch" &&
+    Array.isArray(payload.emotes) &&
+    payload.emotes.length > 0;
+  if (hasKickEmotes || hasTwitchEmotes) {
+    return renderMessageContent(payload);
+  }
+  return escapeHtml(truncateText(payload.message, 120));
+}
+
 function ensureReplyTargetVisible(element) {
   if (!chatEl || !(element instanceof HTMLElement)) {
     return;
@@ -434,8 +452,8 @@ function updateReplyPreview() {
       replyPreviewLabel.textContent = username ? `Replying to @${username}:` : "Replying:";
     }
     if (replyPreviewMessage) {
-      const snippet = replyTarget.message ? truncateText(replyTarget.message, 120) : "";
-      replyPreviewMessage.textContent = snippet;
+      const snippetHtml = renderReplyPreviewContent(replyTarget);
+      replyPreviewMessage.innerHTML = snippetHtml;
     }
     if (replyPreviewSpacer) {
       replyPreviewSpacer.classList.remove("hidden");
@@ -516,6 +534,18 @@ function startReplyFromElement(messageEl) {
   const username = messageEl.dataset.username || "";
   const messageText = messageEl.dataset.rawMessage || "";
   const userId = messageEl.dataset.userId || "";
+  let emotes;
+  const emotesRaw = messageEl.dataset.emotes;
+  if (emotesRaw) {
+    try {
+      const parsed = JSON.parse(emotesRaw);
+      if (Array.isArray(parsed) && parsed.length) {
+        emotes = parsed;
+      }
+    } catch (err) {
+      console.warn("Failed to parse emote metadata for reply target", err);
+    }
+  }
   setReplyTarget(
     {
       platform,
@@ -524,6 +554,7 @@ function startReplyFromElement(messageEl) {
       user: username,
       message: messageText,
       userId,
+      emotes,
     },
     messageEl,
   );
@@ -1223,6 +1254,16 @@ function createMessageElement(payload) {
     wrapper.dataset.rawMessage = String(data.message);
   } else {
     delete wrapper.dataset.rawMessage;
+  }
+  if (Array.isArray(data.emotes) && data.emotes.length) {
+    try {
+      wrapper.dataset.emotes = JSON.stringify(data.emotes);
+    } catch (err) {
+      console.warn("Failed to serialize emote metadata", err);
+      delete wrapper.dataset.emotes;
+    }
+  } else {
+    delete wrapper.dataset.emotes;
   }
 
   if (data.type === "chat") {
