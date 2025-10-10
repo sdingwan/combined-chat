@@ -40,7 +40,7 @@ class TwitchChatClient:
                 {
                     "platform": "twitch",
                     "type": "status",
-                    "message": f"Listening to Twitch chat for #{self.channel}",
+                    "message": f"Connected to Twitch chat for {self.channel}",
                 }
             )
 
@@ -83,9 +83,25 @@ class TwitchChatClient:
                 {
                     "platform": "twitch",
                     "type": "status",
-                    "message": f"Stopped listening to #{self.channel}",
+                    "message": f"Disconnected from Twitch chat for {self.channel}",
                 }
             )
+
+    @staticmethod
+    def _unescape_tag_value(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        replacements = {
+            r"\s": " ",
+            r"\n": "\n",
+            r"\r": "\r",
+            r"\:": ";",
+            r"\\": "\\",
+        }
+        result = value
+        for pattern, replacement in replacements.items():
+            result = result.replace(pattern, replacement)
+        return result
 
     async def _write_line(self, message: str) -> None:
         if not self._writer:
@@ -102,7 +118,7 @@ class TwitchChatClient:
         try:
             prefix, _, remainder = payload.partition(" PRIVMSG ")
             username = prefix.split("!")[0][1:]
-            display_name = tags.get("display-name") or username
+            display_name = self._unescape_tag_value(tags.get("display-name")) or username
             _, _, text = remainder.partition(" :")
             message_payload = {
                 "platform": "twitch",
@@ -110,6 +126,24 @@ class TwitchChatClient:
                 "user": display_name,
                 "message": text,
             }
+
+            message_id = tags.get("id")
+            if message_id:
+                message_payload["id"] = message_id
+
+            reply_parent_id = tags.get("reply-parent-msg-id")
+            if reply_parent_id:
+                parent_display = self._unescape_tag_value(
+                    tags.get("reply-parent-display-name")
+                ) or tags.get("reply-parent-user-login")
+                parent_message = self._unescape_tag_value(tags.get("reply-parent-msg-body"))
+                parent_user_id = tags.get("reply-parent-user-id")
+                message_payload["reply"] = {
+                    "message_id": reply_parent_id,
+                    "user": parent_display or "",
+                    "user_id": parent_user_id or "",
+                    "message": parent_message or "",
+                }
 
             color = tags.get("color")
             if color:
