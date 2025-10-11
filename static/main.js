@@ -1267,10 +1267,6 @@ function createMessageElement(payload) {
   }
 
   if (data.type === "chat") {
-    const icon = document.createElement("div");
-    icon.classList.add("platform-icon", data.platform);
-    wrapper.appendChild(icon);
-
     const meta = document.createElement("span");
     meta.classList.add("meta");
 
@@ -1299,9 +1295,16 @@ function createMessageElement(payload) {
       meta.appendChild(replyContext);
     }
 
+    const badgeRow = document.createElement("span");
+    badgeRow.classList.add("badges");
+
+    if (data.platform === "twitch" || data.platform === "kick") {
+      const platformBadge = document.createElement("span");
+      platformBadge.classList.add("platform-icon", data.platform);
+      badgeRow.appendChild(platformBadge);
+    }
+
     if (Array.isArray(data.badges) && data.badges.length) {
-      const badgeRow = document.createElement("span");
-      badgeRow.classList.add("badges");
       data.badges.forEach((badge) => {
         if (!badge || !badge.image_url) {
           return;
@@ -1321,11 +1324,7 @@ function createMessageElement(payload) {
         }
         badgeRow.appendChild(img);
       });
-      if (badgeRow.childElementCount) {
-        meta.appendChild(badgeRow);
-      }
     }
-
     const username = document.createElement("span");
     username.classList.add("username");
     username.textContent = `${data.user}`;
@@ -1349,7 +1348,14 @@ function createMessageElement(payload) {
     separator.setAttribute("aria-hidden", "true");
     nameGroup.appendChild(separator);
 
-    meta.appendChild(nameGroup);
+    const identityRow = document.createElement("span");
+    identityRow.classList.add("identity");
+    if (badgeRow.childElementCount) {
+      identityRow.appendChild(badgeRow);
+    }
+    identityRow.appendChild(nameGroup);
+
+    meta.appendChild(identityRow);
 
     const text = document.createElement("span");
     text.classList.add("content");

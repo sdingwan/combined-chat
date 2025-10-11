@@ -345,7 +345,7 @@ button.is-busy.button--connect::after {
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
@@ -437,10 +437,16 @@ button.is-busy.button--connect::after {
 .message .meta .name-group {
   display: inline-flex;
   align-items: baseline;
-  gap: 4px;
+  gap: 0;
   white-space: nowrap;
   margin-right: 6px;
   color: rgba(226, 232, 240, 0.96);
+}
+
+.message .meta .identity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .message .meta .separator {
@@ -453,6 +459,11 @@ button.is-busy.button--connect::after {
   align-items: center;
   gap: 3px;
   margin-right: 6px;
+}
+
+.message .meta .identity .badges {
+  margin-right: 0;
+  align-self: center;
 }
 
 .message .meta .badges img {
