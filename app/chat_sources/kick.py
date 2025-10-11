@@ -200,11 +200,9 @@ class KickChatClient:
         if user_id:
             payload["user_id"] = user_id
 
-        reply_source = (
-            data.get("reply_to")
-            or data.get("replied_to")
-            or (data.get("metadata") or {}).get("reply_to")
-        )
+        metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+
+        reply_source = data.get("reply_to") or data.get("replied_to") or metadata.get("reply_to")
         if isinstance(reply_source, dict):
             reply_msg = reply_source.get("message") or reply_source.get("content") or ""
             reply_user = reply_source.get("username") or reply_source.get("user") or ""
@@ -220,5 +218,47 @@ class KickChatClient:
                 "user_id": str(reply_user_id) if reply_user_id is not None else "",
                 "message": str(reply_msg) if reply_msg is not None else "",
             }
+
+        if "reply" not in payload:
+            original_sender = metadata.get("original_sender")
+            original_message = metadata.get("original_message")
+            if isinstance(original_sender, dict) or isinstance(original_message, dict):
+                reply_user = ""
+                reply_user_id = ""
+                reply_msg = ""
+                reply_message_id = ""
+
+                if isinstance(original_sender, dict):
+                    reply_user = (
+                        original_sender.get("username")
+                        or original_sender.get("user")
+                        or original_sender.get("slug")
+                        or ""
+                    )
+                    sender_id = original_sender.get("user_id") or original_sender.get("id")
+                    if sender_id is not None:
+                        reply_user_id = str(sender_id)
+
+                if isinstance(original_message, dict):
+                    reply_msg = (
+                        original_message.get("content")
+                        or original_message.get("message")
+                        or original_message.get("text")
+                        or ""
+                    )
+                    message_id = (
+                        original_message.get("message_id")
+                        or original_message.get("chat_message_id")
+                        or original_message.get("id")
+                    )
+                    if message_id is not None:
+                        reply_message_id = str(message_id)
+
+                payload["reply"] = {
+                    "message_id": reply_message_id,
+                    "user": reply_user,
+                    "user_id": reply_user_id,
+                    "message": reply_msg,
+                }
 
         return payload
