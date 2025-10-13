@@ -391,6 +391,7 @@ button.is-busy.button--connect::after {
   align-items: center;
   justify-content: center;
   min-width: 0;
+  white-space: nowrap;
 }
 
 .chat-pause-banner__button:hover {
