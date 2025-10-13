@@ -389,18 +389,14 @@ function renderReplyPreviewContent(payload) {
   if (!payload || !payload.message) {
     return "";
   }
-  const hasKickEmotes =
-    payload.platform === "kick" &&
-    typeof payload.message === "string" &&
-    /\[emote:(\d+):([^\]]+)\]/.test(payload.message);
-  const hasTwitchEmotes =
-    payload.platform === "twitch" &&
-    Array.isArray(payload.emotes) &&
-    payload.emotes.length > 0;
-  if (hasKickEmotes || hasTwitchEmotes) {
-    return renderMessageContent(payload);
+  const snippetPayload = {
+    message: payload.message,
+    platform: payload.platform || "",
+  };
+  if (Array.isArray(payload.emotes) && payload.emotes.length) {
+    snippetPayload.emotes = payload.emotes;
   }
-  return escapeHtml(truncateText(payload.message, 120));
+  return renderMessageContent(snippetPayload);
 }
 
 function ensureReplyTargetVisible(element) {
@@ -1288,12 +1284,18 @@ function createMessageElement(payload) {
       replyLabel.textContent = parentUser ? `Replying to @${parentUser}:` : "Replying:";
       replyBody.appendChild(replyLabel);
 
-      if (data.reply.message) {
-        const replySnippet = document.createElement("span");
-        replySnippet.classList.add("reply-context__snippet");
-        replySnippet.textContent = String(data.reply.message || "");
-        replyBody.appendChild(document.createTextNode(" "));
-        replyBody.appendChild(replySnippet);
+      if (data.reply && data.reply.message) {
+        const snippetHtml = renderReplySnippetContent(
+          data.reply,
+          data.platform || ""
+        );
+        if (snippetHtml) {
+          replyBody.appendChild(document.createTextNode(" "));
+          const replySnippet = document.createElement("span");
+          replySnippet.classList.add("reply-context__snippet");
+          replySnippet.innerHTML = snippetHtml;
+          replyBody.appendChild(replySnippet);
+        }
       }
 
       replyContext.appendChild(replyBody);
@@ -1550,6 +1552,53 @@ function renderMessageContent(payload) {
     }
   }
   return escapeHtml(raw);
+}
+
+function renderReplySnippetContent(reply, fallbackPlatform) {
+  if (!reply || typeof reply.message !== "string" || reply.message.length === 0) {
+    return "";
+  }
+  const platform = reply.platform || fallbackPlatform || "";
+  const payload = {
+    message: reply.message,
+    platform,
+  };
+  if (platform === "twitch") {
+    if (Array.isArray(reply.emotes) && reply.emotes.length) {
+      payload.emotes = reply.emotes;
+    } else if (chatEl) {
+      const targetId =
+        typeof reply.message_id === "string"
+          ? reply.message_id
+          : typeof reply.messageId === "string"
+            ? reply.messageId
+            : "";
+      if (targetId) {
+        let existing = null;
+        const nodes = chatEl.querySelectorAll(".message");
+        for (const node of nodes) {
+          if (node instanceof HTMLElement && node.dataset.messageId === targetId) {
+            existing = node;
+            break;
+          }
+        }
+        if (existing) {
+          const emotesRaw = existing.dataset.emotes;
+          if (emotesRaw) {
+            try {
+              const parsed = JSON.parse(emotesRaw);
+              if (Array.isArray(parsed) && parsed.length) {
+                payload.emotes = parsed;
+              }
+            } catch (err) {
+              console.warn("Failed to reuse emote metadata for reply snippet", err);
+            }
+          }
+        }
+      }
+    }
+  }
+  return renderMessageContent(payload);
 }
 
 function escapeHtml(value) {

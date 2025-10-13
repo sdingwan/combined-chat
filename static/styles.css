@@ -587,6 +587,13 @@ button.is-busy.button--connect::after {
   min-width: 0;
 }
 
+.message .reply-context__snippet img.emote {
+  height: 18px;
+  width: 18px;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
 .platform-tag {
   font-size: 0.75rem;
   opacity: 0.8;
@@ -773,9 +780,9 @@ button.is-busy.button--connect::after {
 .reply-preview__message {
   font-size: 0.85rem;
   color: rgba(203, 213, 225, 0.9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .reply-preview__close {
