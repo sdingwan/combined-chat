@@ -333,7 +333,7 @@ function buildPlatformOptions() {
     options.push({ value: "kick", label: `Kick (${kickChannel})` });
   }
   if (twitchReady && kickReady) {
-    options.push({ value: "both", label: "Twitch + Kick (send to both)" });
+    options.push({ value: "both", label: "Twitch + Kick" });
   }
   if (replyTarget && replyTarget.platform) {
     return options.filter((option) => option.value === replyTarget.platform);
@@ -1279,19 +1279,24 @@ function createMessageElement(payload) {
       replyIcon.textContent = "↪";
       replyContext.appendChild(replyIcon);
 
+      const replyBody = document.createElement("span");
+      replyBody.classList.add("reply-context__body");
+
       const replyLabel = document.createElement("span");
       replyLabel.classList.add("reply-context__label");
       const parentUser = normalizeUsername(data.reply.user || "");
       replyLabel.textContent = parentUser ? `Replying to @${parentUser}:` : "Replying:";
-      replyContext.appendChild(replyLabel);
+      replyBody.appendChild(replyLabel);
 
       if (data.reply.message) {
         const replySnippet = document.createElement("span");
         replySnippet.classList.add("reply-context__snippet");
-        replySnippet.textContent = truncateText(String(data.reply.message), 60);
-        replyContext.appendChild(replySnippet);
+        replySnippet.textContent = String(data.reply.message || "");
+        replyBody.appendChild(document.createTextNode(" "));
+        replyBody.appendChild(replySnippet);
       }
 
+      replyContext.appendChild(replyBody);
       meta.appendChild(replyContext);
     }
 

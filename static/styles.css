@@ -545,9 +545,11 @@ button.is-busy.button--connect::after {
 }
 
 .message .reply-context {
+  --reply-arrow-width: 1.1em;
+  --reply-arrow-gap: 6px;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--reply-arrow-gap);
   font-size: 0.78rem;
   color: rgba(203, 213, 225, 0.85);
   margin-bottom: 4px;
@@ -556,19 +558,33 @@ button.is-busy.button--connect::after {
 
 .message .reply-context__icon {
   opacity: 0.8;
+  flex: 0 0 auto;
+  width: var(--reply-arrow-width);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message .reply-context__body {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: calc(-1 * (var(--reply-arrow-width) + var(--reply-arrow-gap)));
+  text-indent: calc(var(--reply-arrow-width) + var(--reply-arrow-gap));
 }
 
 .message .reply-context__label {
   font-weight: 600;
   color: rgba(191, 219, 254, 0.95);
+  white-space: nowrap;
 }
 
 .message .reply-context__snippet {
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: rgba(226, 232, 240, 0.9);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .platform-tag {
@@ -836,7 +852,7 @@ button.is-busy.button--connect::after {
 }
 
 #platformSelect {
-  min-width: 150px;
+  min-width: 220px;
   padding: 10px 14px;
   border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.3);
