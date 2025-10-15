@@ -331,9 +331,57 @@ button.is-busy.button--connect::after {
 
 .chat-area {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fullscreen-toggle {
+  --btn-bg: transparent;
+  --btn-shadow: none;
+  padding: 0;
+  width: 52px;
+  height: 52px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  display: grid;
+  place-items: center;
+  box-shadow: none;
+  transform: none;
+  z-index: 6;
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  transition: color 0.15s ease, transform 0.12s ease;
+}
+
+.fullscreen-toggle:hover,
+.fullscreen-toggle:focus-visible {
+  background: transparent;
+  box-shadow: none;
+  color: #ffffff;
+  transform: scale(1.08);
+  outline: none;
+}
+
+.fullscreen-toggle svg {
+  width: 32px;
+  height: 32px;
+  pointer-events: none;
+}
+
+.fullscreen-toggle.is-active {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.fullscreen-toggle.is-active:hover,
+.fullscreen-toggle.is-active:focus-visible {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 #chat {
+  position: relative;
   height: clamp(560px, 72vh, 900px);
   min-height: 360px;
   max-height: 90vh;
@@ -347,6 +395,29 @@ button.is-busy.button--connect::after {
   flex-direction: column;
   gap: 5px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.chat-area:fullscreen,
+.chat-area:-webkit-full-screen {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: 14px 18px 18px;
+  gap: 16px;
+  background: #0f0f11;
+  box-sizing: border-box;
+}
+
+.chat-area:fullscreen #chat,
+.chat-area:-webkit-full-screen #chat {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  resize: none;
+  border-radius: 0;
+  border-width: 0;
 }
 
 .chat-pause-banner {
@@ -397,6 +468,15 @@ button.is-busy.button--connect::after {
 .chat-pause-banner__button:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(145, 70, 255, 0.45);
+}
+
+.chat-area .message-input-container {
+  padding: 0 4px 4px;
+}
+
+.chat-area:fullscreen .message-input-container,
+.chat-area:-webkit-full-screen .message-input-container {
+  padding: 0;
 }
 
 .chat-pause-banner__button:disabled {

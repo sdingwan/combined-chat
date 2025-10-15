@@ -19,6 +19,10 @@ const replyPreviewSpacer = document.getElementById("replyPreviewSpacer");
 const replyPreviewLabel = document.getElementById("replyPreviewLabel");
 const replyPreviewMessage = document.getElementById("replyPreviewMessage");
 const replyCancelButton = document.getElementById("replyCancelButton");
+const fullscreenToggle = document.getElementById("fullscreenToggle");
+const chatArea = document.querySelector(".chat-area");
+const messageInputContainer = document.querySelector(".message-input-container");
+let chatInputOffset = 0;
 
 let socket = null;
 let sendingMessage = false;
@@ -142,6 +146,79 @@ function recordMessageForPersistence(payload) {
 
 if (persistenceAvailable) {
   loadPersistedState();
+}
+
+const updateChatInputOffset = () => {
+  if (!messageInputContainer) {
+    return;
+  }
+  const nextOffset = (messageInputContainer.offsetHeight || 0) + 12;
+  if (nextOffset !== chatInputOffset) {
+    chatInputOffset = nextOffset;
+    updatePauseBannerOffset();
+  }
+};
+
+if (messageInputContainer) {
+  updateChatInputOffset();
+  window.addEventListener("resize", updateChatInputOffset);
+  if (typeof ResizeObserver !== "undefined") {
+    const resizeObserver = new ResizeObserver(updateChatInputOffset);
+    resizeObserver.observe(messageInputContainer);
+  }
+}
+
+if (fullscreenToggle && chatArea) {
+  const getFullscreenElement = () =>
+    document.fullscreenElement || document.webkitFullscreenElement || null;
+
+  const requestChatFullscreen = () => {
+    if (chatArea.requestFullscreen) {
+      return chatArea.requestFullscreen();
+    }
+    if (chatArea.webkitRequestFullscreen) {
+      chatArea.webkitRequestFullscreen();
+      return Promise.resolve();
+    }
+    return Promise.reject(new Error("Fullscreen not supported"));
+  };
+
+  const exitFullscreen = () => {
+    if (document.exitFullscreen) {
+      return document.exitFullscreen();
+    }
+    if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+      return Promise.resolve();
+    }
+    return Promise.resolve();
+  };
+
+  const updateFullscreenState = () => {
+    const isActive = getFullscreenElement() === chatArea;
+    fullscreenToggle.classList.toggle("is-active", isActive);
+    fullscreenToggle.setAttribute(
+      "aria-label",
+      isActive ? "Exit fullscreen" : "Enter fullscreen"
+    );
+    updatePauseBannerOffset();
+  };
+
+  fullscreenToggle.addEventListener("click", async () => {
+    try {
+      if (getFullscreenElement() === chatArea) {
+        await exitFullscreen();
+      } else {
+        await requestChatFullscreen();
+      }
+    } catch (err) {
+      console.warn("Unable to toggle fullscreen mode", err);
+    }
+  });
+
+  document.addEventListener("fullscreenchange", updateFullscreenState);
+  document.addEventListener("webkitfullscreenchange", updateFullscreenState);
+  updateFullscreenState();
 }
 const moderationOptions = [
   { action: "ban", label: "🚫", ariaLabel: "Ban user", variant: "danger", isIcon: true },
@@ -693,18 +770,27 @@ function updatePauseBanner() {
   }
   const hasUnread = unreadCount > 0;
   chatResumeButton.disabled = false;
-  chatResumeButton.textContent = hasUnread
-    ? unreadCount === 1
-      ? "Show 1 new message"
-      : `Show ${unreadCount} new messages`
-    : "\u2193 Back to bottom";
+  if (!hasUnread) {
+    chatResumeButton.textContent = "\u2193 Back to bottom";
+  } else if (unreadCount === 1) {
+    chatResumeButton.textContent = "Show 1 new message";
+  } else if (unreadCount >= bufferedMessageLimit) {
+    chatResumeButton.textContent = `Show ${bufferedMessageLimit}+ new messages`;
+  } else {
+    chatResumeButton.textContent = `Show ${unreadCount} new messages`;
+  }
 }
 
 function updatePauseBannerOffset() {
   if (!chatPauseBanner) {
     return;
   }
-  let bottom = 18;
+  const fullscreenActive =
+    chatArea &&
+    (document.fullscreenElement === chatArea || document.webkitFullscreenElement === chatArea);
+  const baseOffset = chatInputOffset || 0;
+  const fullscreenOffset = fullscreenActive ? 10 : 0;
+  let bottom = 18 + baseOffset + fullscreenOffset;
   if (replyPreview && !replyPreview.classList.contains("hidden")) {
     const previewHeight = replyPreview.offsetHeight || 0;
     const spacerHeight =
@@ -712,7 +798,7 @@ function updatePauseBannerOffset() {
         ? replyPreviewSpacer.offsetHeight || 0
         : 0;
     // Offset banner by preview height plus spacer and border separation.
-    bottom = Math.max(18, previewHeight + spacerHeight + 24);
+    bottom = Math.max(bottom, baseOffset + fullscreenOffset + previewHeight + spacerHeight + 24);
   }
   chatPauseBanner.style.bottom = `${bottom}px`;
 }
