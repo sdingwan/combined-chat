@@ -7,6 +7,271 @@ import httpx
 import websockets
 from websockets.exceptions import ConnectionClosed
 
+from pathlib import Path
+
+from app.config import settings
+
+GLOBAL_BADGE_FILENAMES: dict[str, str] = {
+    "verified": "verified",
+    "moderator": "moderator",
+    "vip": "vip",
+    "staff": "staff",
+    "bot": "bot",
+    "founder": "founder",
+    "partner": "partner",
+    "broadcaster": "broadcaster",
+    "og": "og",
+}
+
+GLOBAL_BADGE_TITLES: dict[str, str] = {
+    "verified": "Verified channel",
+    "moderator": "Moderator",
+    "vip": "VIP",
+    "staff": "Staff",
+    "bot": "Bot",
+    "founder": "Founder",
+    "partner": "Partner",
+    "broadcaster": "Broadcaster",
+    "og": "OG Supporter",
+}
+
+STATIC_BADGE_WEB_BASE = "/static/badges/kick"
+STATIC_BADGE_DIR = Path(__file__).resolve().parents[2] / "static" / "badges" / "kick"
+STATIC_BADGE_DIR.mkdir(parents=True, exist_ok=True)
+BADGE_EXTENSION_PREFERENCE = ("svg", "png", "webp", "gif", "jpg", "jpeg")
+
+
+class KickBadgeResolver:
+    """Resolve Kick identity badge metadata to renderable assets."""
+
+    CHANNEL_ENDPOINT = "https://kick.com/api/v2/channels/{slug}"
+
+    def __init__(self, channel: str) -> None:
+        self.channel = channel.replace("_", "-")
+        self._subscriber_badges: dict[int, dict[str, str]] = {}
+        self._fetch_attempted = False
+        self._logger = logging.getLogger(__name__)
+        self._badge_dir = STATIC_BADGE_DIR
+        self._missing_global_badges: set[str] = set()
+
+    async def resolve(self, badges: list[dict]) -> list[dict[str, str]]:
+        """Translate raw Kick badge descriptors into frontend-friendly data."""
+
+        if not badges:
+            return []
+
+        resolved: list[dict[str, str]] = []
+        for badge in badges:
+            badge_type = str(badge.get("type") or "").lower()
+            if not badge_type:
+                continue
+
+            if badge_type == "subscriber":
+                enriched = await self._resolve_subscriber_badge(badge)
+                if enriched:
+                    resolved.append(enriched)
+                continue
+            enriched = self._resolve_global_badge(badge_type, badge)
+            if enriched:
+                resolved.append(enriched)
+
+        return resolved
+
+    def _compose_payload(
+        self,
+        set_id: str,
+        badge: dict,
+        image_url: str,
+        default_title: Optional[str] = None,
+        version: Optional[str] = None,
+    ) -> dict[str, str]:
+        payload: dict[str, str] = {
+            "image_url": image_url,
+            "set_id": set_id,
+        }
+        if version is not None:
+            payload["version"] = version
+        title = badge.get("text") or default_title
+        if title:
+            payload["title"] = str(title)
+        return payload
+
+    def _extract_badge_image_url(self, badge: dict) -> Optional[str]:
+        """Return an image URL embedded in the raw badge payload."""
+
+        image_url = badge.get("image_url")
+        if isinstance(image_url, str) and image_url:
+            return image_url
+
+        image = badge.get("badge_image") or badge.get("image")
+        if isinstance(image, dict):
+            candidate = image.get("src") or image.get("url")
+            if isinstance(candidate, str) and candidate:
+                return candidate
+        elif isinstance(image, str) and image:
+            return image
+        return None
+
+    async def _resolve_subscriber_badge(self, badge: dict) -> Optional[dict[str, str]]:
+        months_raw = (
+            badge.get("count")
+            or badge.get("months")
+            or badge.get("quantity")
+            or badge.get("tier")
+            or badge.get("level")
+        )
+        try:
+            months = int(months_raw) if months_raw is not None else None
+        except (TypeError, ValueError):
+            months = None
+
+        await self._ensure_channel_badges()
+
+        asset: Optional[dict[str, str]] = None
+        version: Optional[str] = None
+        asset_months: Optional[int] = months
+
+        if months is not None:
+            asset = self._subscriber_badges.get(months)
+            if not asset and self._subscriber_badges:
+                eligible = [key for key in self._subscriber_badges if key <= months]
+                if eligible:
+                    asset_months = max(eligible)
+                    asset = self._subscriber_badges.get(asset_months)
+                else:
+                    eligible = [key for key in self._subscriber_badges if key >= months]
+                    if eligible:
+                        asset_months = min(eligible)
+                        asset = self._subscriber_badges.get(asset_months)
+            if asset and asset_months is not None:
+                version = str(asset_months)
+
+        if not asset:
+            direct_url = self._extract_badge_image_url(badge)
+            if direct_url:
+                asset = {
+                    "image_url": direct_url,
+                    "title": badge.get("text") or "Subscriber",
+                }
+                if months is not None:
+                    version = str(months)
+
+        if not asset:
+            return None
+
+        payload = self._compose_payload(
+            "subscriber",
+            badge,
+            asset["image_url"],
+            asset.get("title"),
+            version,
+        )
+        if months is not None:
+            title_source = badge.get("text") or asset.get("title")
+            if title_source:
+                payload["title"] = f"{title_source} ({months} months)"
+        elif not payload.get("title"):
+            title = asset.get("title")
+            if title:
+                payload["title"] = title
+        return payload
+
+    def _resolve_global_badge(self, badge_type: str, badge: dict) -> Optional[dict[str, str]]:
+        default_title = GLOBAL_BADGE_TITLES.get(badge_type)
+        inline_image = self._extract_badge_image_url(badge)
+        if inline_image:
+            return self._compose_payload(badge_type, badge, inline_image, default_title)
+
+        image_url = self._build_global_badge_url(badge_type)
+        if not image_url:
+            return None
+        return self._compose_payload(badge_type, badge, image_url, default_title)
+
+    def _build_global_badge_url(self, badge_type: str) -> Optional[str]:
+        filename = GLOBAL_BADGE_FILENAMES.get(badge_type)
+        if not filename:
+            return None
+
+        badge_file = self._find_badge_file(filename)
+        if not badge_file:
+            if badge_type not in self._missing_global_badges:
+                self._logger.debug(
+                    "Kick badge asset '%s' not found under %s", badge_type, self._badge_dir
+                )
+                self._missing_global_badges.add(badge_type)
+            return None
+
+        return f"{STATIC_BADGE_WEB_BASE}/{badge_file.name}"
+
+    def _find_badge_file(self, base_name: str) -> Optional[Path]:
+        if not self._badge_dir or not self._badge_dir.exists():
+            return None
+
+        if "." in base_name:
+            candidate = self._badge_dir / base_name
+            if candidate.exists():
+                return candidate
+
+        for ext in BADGE_EXTENSION_PREFERENCE:
+            candidate = self._badge_dir / f"{base_name}.{ext}"
+            if candidate.exists():
+                return candidate
+
+        matches = list(self._badge_dir.glob(f"{base_name}.*"))
+        return matches[0] if matches else None
+
+    async def _ensure_channel_badges(self) -> None:
+        if self._subscriber_badges or self._fetch_attempted:
+            return
+
+        self._fetch_attempted = True
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5_0) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "Referer": f"https://kick.com/{self.channel}",
+            "Origin": "https://kick.com",
+            "Accept": "application/json",
+        }
+
+        token = getattr(settings, "kick_client_token", None)
+        if token:
+            headers["X-CLIENT-TOKEN"] = token
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.get(
+                    self.CHANNEL_ENDPOINT.format(slug=self.channel), headers=headers
+                )
+            response.raise_for_status()
+        except Exception as exc:  # pragma: no cover - network heavy
+            self._logger.warning("Failed to fetch Kick channel badge metadata: %s", exc)
+            return
+
+        try:
+            data = response.json()
+        except ValueError:  # pragma: no cover - network heavy
+            self._logger.warning("Kick channel badge response was not valid JSON for %s", self.channel)
+            return
+        subscriber_badges = data.get("subscriber_badges")
+        if not isinstance(subscriber_badges, list):
+            return
+
+        for badge in subscriber_badges:
+            months = badge.get("months")
+            image = badge.get("badge_image")
+            image_url = image.get("src") if isinstance(image, dict) else None
+            if months is None or not image_url:
+                continue
+            try:
+                months_key = int(months)
+            except (TypeError, ValueError):
+                continue
+            self._subscriber_badges[months_key] = {
+                "image_url": image_url,
+                "title": "Subscriber",
+            }
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +291,7 @@ class KickChatClient:
         self.channel = channel.lower()
         self.queue = queue
         self.stop_event = stop_event
+        self._badge_resolver = KickBadgeResolver(self.channel)
 
     async def run(self) -> None:
         try:
@@ -109,7 +375,7 @@ class KickChatClient:
             elif event == "pusher:ping":
                 await socket.send(self.PONG_PAYLOAD)
             elif event == "App\\Events\\ChatMessageEvent":
-                payload = self._parse_chat_message(message)
+                payload = await self._parse_chat_message(message)
                 if payload:
                     await self.queue.put(payload)
             elif event == "pusher:error":
@@ -154,8 +420,7 @@ class KickChatClient:
         except json.JSONDecodeError:
             logger.debug("Invalid JSON from Kick websocket: %s", raw)
             return None
-
-    def _parse_chat_message(self, message: dict) -> Optional[dict]:
+    async def _parse_chat_message(self, message: dict) -> Optional[dict]:
         raw_data = message.get("data")
         if isinstance(raw_data, str):
             try:
@@ -192,6 +457,18 @@ class KickChatClient:
             "user": username,
             "message": content,
         }
+
+        if isinstance(sender, dict):
+            identity = sender.get("identity")
+            if isinstance(identity, dict):
+                color = identity.get("color")
+                if color:
+                    payload["color"] = color
+                raw_badges = identity.get("badges")
+                if isinstance(raw_badges, list):
+                    resolved_badges = await self._badge_resolver.resolve(raw_badges)
+                    if resolved_badges:
+                        payload["badges"] = resolved_badges
 
         message_id = data.get("id") or data.get("chat_id") or data.get("uuid")
         if message_id is not None:

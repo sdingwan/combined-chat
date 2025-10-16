@@ -1889,7 +1889,7 @@ function colorCacheKey(payload) {
 
 function resolveUsernameColor(payload) {
   const key = colorCacheKey(payload);
-  const provided = payload.platform === "twitch" ? normalizeColor(payload.color) : null;
+  const provided = normalizeColor(payload.color);
   if (provided) {
     colorCache.set(key, provided);
     return provided;
