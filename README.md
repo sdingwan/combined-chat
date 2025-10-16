@@ -69,6 +69,13 @@ The application provides a unified chat interface where you can:
 6. **Open your browser**
    Navigate to `http://localhost:8000`
 
+### Kick badge images
+
+The application serves Kick badge artwork from `static/badges/kick/`. Drop the official badge
+files into that folder using lowercase names that match the badge type (for example,
+`verified.svg`, `moderator.png`). SVG, PNG, WEBP, GIF, JPG, and JPEG files are supported. Subscriber
+badges are still fetched from Kick's channel metadata to ensure tier artwork stays up to date.
+
 ## Usage
 
 1. **Start the server** using the command above

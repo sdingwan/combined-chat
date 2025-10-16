@@ -263,7 +263,8 @@ const messageInputPlatformClasses = [
 const moderationMenu = document.createElement("div");
 moderationMenu.id = "moderationMenu";
 moderationMenu.classList.add("moderation-menu", "hidden");
-document.body.appendChild(moderationMenu);
+const moderationMenuHost = chatArea || document.body;
+moderationMenuHost.appendChild(moderationMenu);
 
 function setButtonBusy(button, busy, busyLabel) {
   if (!button) {
@@ -410,7 +411,7 @@ function buildPlatformOptions() {
     options.push({ value: "kick", label: `Kick (${kickChannel})` });
   }
   if (twitchReady && kickReady) {
-    options.push({ value: "both", label: "Twitch + Kick" });
+    options.push({ value: "both", label: "Twitch + Kick (both)" });
   }
   if (replyTarget && replyTarget.platform) {
     return options.filter((option) => option.value === replyTarget.platform);
@@ -1242,9 +1243,32 @@ chatEl.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     openModerationMenuForElement(target);
-  } else {
-    hideModerationMenu();
+    return;
   }
+
+  const messageEl = event.target instanceof HTMLElement ? event.target.closest(".message") : null;
+  if (messageEl && messageEl.dataset.messageId) {
+    const interactive = event.target instanceof HTMLElement
+      ? event.target.closest("a, button, input, textarea, select, [role='button']")
+      : null;
+    if (interactive) {
+      hideModerationMenu();
+      return;
+    }
+    const replyRegion = event.target instanceof HTMLElement
+      ? event.target.closest(".content")
+      : null;
+    if (!replyRegion || replyRegion.closest(".message") !== messageEl) {
+      hideModerationMenu();
+      return;
+    }
+    event.preventDefault();
+    startReplyFromElement(messageEl);
+    hideModerationMenu();
+    return;
+  }
+
+  hideModerationMenu();
 });
 
 chatEl.addEventListener("keydown", (event) => {
@@ -1889,7 +1913,7 @@ function colorCacheKey(payload) {
 
 function resolveUsernameColor(payload) {
   const key = colorCacheKey(payload);
-  const provided = payload.platform === "twitch" ? normalizeColor(payload.color) : null;
+  const provided = normalizeColor(payload.color);
   if (provided) {
     colorCache.set(key, provided);
     return provided;
