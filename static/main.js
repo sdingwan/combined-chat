@@ -38,6 +38,7 @@ let suppressScrollHandler = false;
 const currentChannels = { twitch: "", kick: "" };
 let replyTarget = null;
 let replyTargetElement = null;
+let preferredSendPlatform = "";
 
 const storageKey = "combinedChatState";
 
@@ -543,6 +544,32 @@ function updateReplyPreview() {
   updatePauseBannerOffset();
 }
 
+function getAvailablePlatformValues() {
+  if (!platformSelect) {
+    return [];
+  }
+  return Array.from(platformSelect.options).map((option) => option.value);
+}
+
+function restorePreferredPlatformSelection() {
+  if (!platformSelect || platformSelect.disabled) {
+    return;
+  }
+  const availableValues = getAvailablePlatformValues();
+  let value = "";
+  if (preferredSendPlatform && availableValues.includes(preferredSendPlatform)) {
+    value = preferredSendPlatform;
+  } else if (availableValues.length) {
+    value = availableValues[0];
+  }
+  if (value) {
+    platformSelect.value = value;
+  } else {
+    platformSelect.value = "";
+  }
+  applySendButtonStyle(value);
+}
+
 function clearReplyTarget(options = {}) {
   if (replyTargetElement) {
     replyTargetElement.classList.remove("message--reply-target");
@@ -552,6 +579,8 @@ function clearReplyTarget(options = {}) {
   updateReplyPreview();
   if (options.updateControls !== false) {
     updateMessageControls();
+  } else {
+    restorePreferredPlatformSelection();
   }
 }
 
@@ -695,16 +724,33 @@ function updateMessageControls() {
   }
 
   platformSelect.disabled = !connectionReady || !options.length;
-  if (
-    replyTarget &&
-    options.some((option) => option.value === replyTarget.platform)
-  ) {
-    platformSelect.value = replyTarget.platform;
+  if (platformSelect.disabled) {
+    platformSelect.value = "";
+  } else {
+    const availableValues = options.map((option) => option.value);
+    let nextValue = "";
+    if (
+      replyTarget &&
+      availableValues.includes(replyTarget.platform)
+    ) {
+      nextValue = replyTarget.platform;
+    } else if (preferredSendPlatform && availableValues.includes(preferredSendPlatform)) {
+      nextValue = preferredSendPlatform;
+    } else if (availableValues.length) {
+      nextValue = availableValues[0];
+      preferredSendPlatform = nextValue;
+    }
+    if (nextValue) {
+      platformSelect.value = nextValue;
+    }
   }
   const canSend = connectionReady && options.length > 0;
   messageInput.disabled = !canSend;
   sendButton.disabled = !canSend;
   const selectedPlatform = !platformSelect.disabled ? platformSelect.value : "";
+  if (!replyTarget && selectedPlatform) {
+    preferredSendPlatform = selectedPlatform;
+  }
   applySendButtonStyle(selectedPlatform);
 
   if (!canSend) {
@@ -1318,6 +1364,7 @@ document.addEventListener("keydown", (event) => {
 
 platformSelect.addEventListener("change", () => {
   if (!platformSelect.disabled) {
+    preferredSendPlatform = platformSelect.value || "";
     applySendButtonStyle(platformSelect.value);
   }
 });
@@ -2191,8 +2238,6 @@ async function sendMessage() {
     return;
   }
 
-  const previousPlatformValue = platform;
-
   const sendButtonWasDisabled = sendButton.disabled;
 
   sendingMessage = true;
@@ -2285,13 +2330,6 @@ async function sendMessage() {
   } finally {
     sendingMessage = false;
     updateMessageControls();
-    if (previousPlatformValue) {
-      const options = Array.from(platformSelect.options);
-      const matchingOption = options.find((option) => option.value === previousPlatformValue);
-      if (matchingOption) {
-        platformSelect.value = previousPlatformValue;
-      }
-    }
     applySendButtonStyle(!platformSelect.disabled ? platformSelect.value : "");
     if (sendButtonWasDisabled && !sendButton.disabled) {
       sendButton.disabled = true;
