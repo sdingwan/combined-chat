@@ -39,6 +39,8 @@ STATIC_BADGE_WEB_BASE = "/static/badges/kick"
 STATIC_BADGE_DIR = Path(__file__).resolve().parents[2] / "static" / "badges" / "kick"
 STATIC_BADGE_DIR.mkdir(parents=True, exist_ok=True)
 BADGE_EXTENSION_PREFERENCE = ("svg", "png", "webp", "gif", "jpg", "jpeg")
+SUBSCRIBER_FALLBACK_NAME = "subscriber"
+SUBSCRIBER_FALLBACK_TITLE = "Subscriber"
 
 
 class KickBadgeResolver:
@@ -65,6 +67,9 @@ class KickBadgeResolver:
             badge_type = str(badge.get("type") or "").lower()
             if not badge_type:
                 continue
+
+            if badge_type.startswith("subscriber") or badge_type == "sub":
+                badge_type = "subscriber"
 
             if badge_type == "subscriber":
                 enriched = await self._resolve_subscriber_badge(badge)
@@ -152,6 +157,16 @@ class KickBadgeResolver:
                 asset = {
                     "image_url": direct_url,
                     "title": badge.get("text") or "Subscriber",
+                }
+                if months is not None:
+                    version = str(months)
+
+        if not asset:
+            fallback_file = self._find_badge_file(SUBSCRIBER_FALLBACK_NAME)
+            if fallback_file:
+                asset = {
+                    "image_url": f"{STATIC_BADGE_WEB_BASE}/{fallback_file.name}",
+                    "title": SUBSCRIBER_FALLBACK_TITLE,
                 }
                 if months is not None:
                     version = str(months)
