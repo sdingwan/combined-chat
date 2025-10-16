@@ -410,7 +410,7 @@ function buildPlatformOptions() {
     options.push({ value: "kick", label: `Kick (${kickChannel})` });
   }
   if (twitchReady && kickReady) {
-    options.push({ value: "both", label: "Twitch + Kick" });
+    options.push({ value: "both", label: "Twitch + Kick (both)" });
   }
   if (replyTarget && replyTarget.platform) {
     return options.filter((option) => option.value === replyTarget.platform);
@@ -1242,9 +1242,32 @@ chatEl.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     openModerationMenuForElement(target);
-  } else {
-    hideModerationMenu();
+    return;
   }
+
+  const messageEl = event.target instanceof HTMLElement ? event.target.closest(".message") : null;
+  if (messageEl && messageEl.dataset.messageId) {
+    const interactive = event.target instanceof HTMLElement
+      ? event.target.closest("a, button, input, textarea, select, [role='button']")
+      : null;
+    if (interactive) {
+      hideModerationMenu();
+      return;
+    }
+    const replyRegion = event.target instanceof HTMLElement
+      ? event.target.closest(".content")
+      : null;
+    if (!replyRegion || replyRegion.closest(".message") !== messageEl) {
+      hideModerationMenu();
+      return;
+    }
+    event.preventDefault();
+    startReplyFromElement(messageEl);
+    hideModerationMenu();
+    return;
+  }
+
+  hideModerationMenu();
 });
 
 chatEl.addEventListener("keydown", (event) => {

@@ -501,6 +501,28 @@ button.is-busy.button--connect::after {
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
+.message[data-message-id] {
+  cursor: default;
+}
+
+.message[data-message-id] .content {
+  cursor: pointer;
+}
+
+.message[data-message-id] .content:hover,
+.message[data-message-id] .content:focus-within {
+  text-decoration: underline;
+}
+
+.message[data-message-id] .badges,
+.message[data-message-id] .badges *,
+.message[data-message-id] .reply-context,
+.message[data-message-id] .reply-context *,
+.message[data-message-id] .name-group .separator {
+  cursor: default;
+  text-decoration: none;
+}
+
 .message:hover,
 .message:focus-within {
   background: rgba(255, 255, 255, 0.05);
@@ -940,7 +962,7 @@ button.is-busy.button--connect::after {
 }
 
 #platformSelect {
-  min-width: 220px;
+  min-width: 200px;
   padding: 10px 14px;
   border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.3);
