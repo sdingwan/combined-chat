@@ -263,7 +263,8 @@ const messageInputPlatformClasses = [
 const moderationMenu = document.createElement("div");
 moderationMenu.id = "moderationMenu";
 moderationMenu.classList.add("moderation-menu", "hidden");
-document.body.appendChild(moderationMenu);
+const moderationMenuHost = chatArea || document.body;
+moderationMenuHost.appendChild(moderationMenu);
 
 function setButtonBusy(button, busy, busyLabel) {
   if (!button) {
