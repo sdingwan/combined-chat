@@ -1391,7 +1391,19 @@ function createMessageElement(payload) {
       const replyLabel = document.createElement("span");
       replyLabel.classList.add("reply-context__label");
       const parentUser = normalizeUsername(data.reply.user || "");
-      replyLabel.textContent = parentUser ? `Replying to @${parentUser}:` : "Replying:";
+      if (parentUser) {
+        replyLabel.appendChild(document.createTextNode("Replying to "));
+        const mention = document.createElement("span");
+        mention.classList.add("mention");
+        mention.textContent = `@${parentUser}`;
+        if (isSelfMention(parentUser)) {
+          mention.classList.add("mention--self");
+        }
+        replyLabel.appendChild(mention);
+        replyLabel.appendChild(document.createTextNode(":"));
+      } else {
+        replyLabel.textContent = "Replying:";
+      }
       replyBody.appendChild(replyLabel);
 
       if (data.reply && data.reply.message) {
@@ -1599,8 +1611,93 @@ function appendMessage(payload) {
   scrollToBottom();
 }
 
+function mentionKey(value) {
+  if (value == null) {
+    return "";
+  }
+  const normalized = normalizeUsername(String(value));
+  if (!normalized) {
+    return "";
+  }
+  return normalized.toLowerCase();
+}
+
+function getSelfMentionKeys() {
+  const keys = new Set();
+  if (!authState || !authState.authenticated) {
+    return keys;
+  }
+  const push = (value) => {
+    const key = mentionKey(value);
+    if (key) {
+      keys.add(key);
+    }
+  };
+  if (authState.user && typeof authState.user === "object") {
+    ["display_name", "displayName", "username", "login", "name"].forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(authState.user, field)) {
+        push(authState.user[field]);
+      }
+    });
+  }
+  if (Array.isArray(authState.accounts)) {
+    authState.accounts.forEach((account) => {
+      if (!account || typeof account !== "object") {
+        return;
+      }
+      ["display_name", "displayName", "username", "login", "name"].forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(account, field)) {
+          push(account[field]);
+        }
+      });
+    });
+  }
+  return keys;
+}
+
+function formatTextWithMentions(text, mentionKeys) {
+  const rawText = typeof text === "string" ? text : String(text ?? "");
+  if (!rawText) {
+    return "";
+  }
+  const targets = mentionKeys || getSelfMentionKeys();
+  if (!targets.size) {
+    return escapeHtml(rawText);
+  }
+  const mentionPattern = /@([A-Za-z0-9_]+)/g;
+  let result = "";
+  let lastIndex = 0;
+  let match;
+  while ((match = mentionPattern.exec(rawText)) !== null) {
+    const [fullMatch, username] = match;
+    const start = match.index;
+    if (start > lastIndex) {
+      result += escapeHtml(rawText.slice(lastIndex, start));
+    }
+    if (targets.has(mentionKey(username))) {
+      result += `<span class="mention mention--self">${escapeHtml(fullMatch)}</span>`;
+    } else {
+      result += escapeHtml(fullMatch);
+    }
+    lastIndex = start + fullMatch.length;
+  }
+  if (lastIndex < rawText.length) {
+    result += escapeHtml(rawText.slice(lastIndex));
+  }
+  return result;
+}
+
+function isSelfMention(value) {
+  const key = mentionKey(value);
+  if (!key) {
+    return false;
+  }
+  return getSelfMentionKeys().has(key);
+}
+
 function renderMessageContent(payload) {
   const raw = String(payload.message ?? "");
+  const mentionKeys = getSelfMentionKeys();
   if (payload.platform === "kick") {
     const regex = /\[emote:(\d+):([^\]]+)\]/g;
     let match;
@@ -1609,7 +1706,7 @@ function renderMessageContent(payload) {
     while ((match = regex.exec(raw)) !== null) {
       const [token, id, name] = match;
       if (match.index > lastIndex) {
-        segments.push(escapeHtml(raw.slice(lastIndex, match.index)));
+        segments.push(formatTextWithMentions(raw.slice(lastIndex, match.index), mentionKeys));
       }
       const safeName = name.replace(/"/g, "&quot;");
       const src = `https://files.kick.com/emotes/${id}/fullsize`;
@@ -1619,7 +1716,7 @@ function renderMessageContent(payload) {
       lastIndex = match.index + token.length;
     }
     if (lastIndex < raw.length) {
-      segments.push(escapeHtml(raw.slice(lastIndex)));
+      segments.push(formatTextWithMentions(raw.slice(lastIndex), mentionKeys));
     }
     return segments.join("");
   }
@@ -1646,7 +1743,7 @@ function renderMessageContent(payload) {
         return;
       }
       if (start > cursor) {
-        segments.push(escapeHtml(raw.slice(cursor, start)));
+        segments.push(formatTextWithMentions(raw.slice(cursor, start), mentionKeys));
       }
       const safeAlt = (alt || "emote").replace(/"/g, "&quot;");
       segments.push(
@@ -1655,13 +1752,13 @@ function renderMessageContent(payload) {
       cursor = end + 1;
     });
     if (cursor < raw.length) {
-      segments.push(escapeHtml(raw.slice(cursor)));
+      segments.push(formatTextWithMentions(raw.slice(cursor), mentionKeys));
     }
     if (segments.length) {
       return segments.join("");
     }
   }
-  return escapeHtml(raw);
+  return formatTextWithMentions(raw, mentionKeys);
 }
 
 function renderReplySnippetContent(reply, fallbackPlatform) {
