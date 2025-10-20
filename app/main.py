@@ -82,55 +82,91 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         await websocket.close(code=4001)
         return
 
-    twitch_channel = str(init.get("twitch", "")).strip()
-    kick_channel = str(init.get("kick", "")).strip()
+    def _normalise_channels(value: Any) -> list[str]:
+        if value is None:
+            return []
+        raw_items: list[str]
+        if isinstance(value, str):
+            # Allow comma or newline separated strings for backwards compatibility
+            raw_items = [item.strip() for item in value.replace("\n", ",").split(",")]
+        elif isinstance(value, (list, tuple, set)):
+            raw_items = []
+            for item in value:
+                if isinstance(item, str):
+                    raw_items.append(item.strip())
+                elif item is not None:
+                    raw_items.append(str(item).strip())
+        else:
+            raw_items = []
 
-    if not twitch_channel and not kick_channel:
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for item in raw_items:
+            if not item:
+                continue
+            normalised = item.lstrip("#").strip()
+            if not normalised:
+                continue
+            key = normalised.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(normalised)
+            if len(cleaned) >= 10:
+                break
+        return cleaned
+
+    twitch_channels = _normalise_channels(init.get("twitch"))
+    kick_channels = _normalise_channels(init.get("kick"))
+
+    if not twitch_channels and not kick_channels:
         await websocket.send_json(
             {"type": "error", "message": "Please provide at least one streamer name"}
         )
         await websocket.close(code=4002)
         return
 
-    twitch_client: Optional[TwitchChatClient] = None
-    kick_client: Optional[KickChatClient] = None
+    twitch_clients: list[TwitchChatClient] = []
+    kick_clients: list[KickChatClient] = []
 
-    twitch_error: Optional[str] = None
-    kick_error: Optional[str] = None
+    twitch_errors: list[tuple[str, str]] = []
+    kick_errors: list[tuple[str, str]] = []
 
-    if twitch_channel:
-        twitch_client = TwitchChatClient(twitch_channel, queue, stop_event)
+    for channel in twitch_channels:
+        client = TwitchChatClient(channel, queue, stop_event)
         try:
-            await twitch_client.ensure_channel_exists()
+            await client.ensure_channel_exists()
         except RuntimeError as exc:
-            twitch_error = str(exc)
-            twitch_client = None
+            twitch_errors.append((channel, str(exc)))
+        else:
+            twitch_clients.append(client)
 
-    if kick_channel:
-        kick_client = KickChatClient(kick_channel, queue, stop_event)
+    for channel in kick_channels:
+        client = KickChatClient(channel, queue, stop_event)
         try:
-            await kick_client.ensure_channel_exists()
+            await client.ensure_channel_exists()
         except RuntimeError as exc:
-            kick_error = str(exc)
-            kick_client = None
+            kick_errors.append((channel, str(exc)))
+        else:
+            kick_clients.append(client)
 
-    if twitch_client is None and twitch_error:
+    for channel, message in twitch_errors:
         await websocket.send_json(
-            {"platform": "twitch", "type": "error", "message": twitch_error}
+            {"platform": "twitch", "channel": channel, "type": "error", "message": message}
         )
-    if kick_client is None and kick_error:
+    for channel, message in kick_errors:
         await websocket.send_json(
-            {"platform": "kick", "type": "error", "message": kick_error}
+            {"platform": "kick", "channel": channel, "type": "error", "message": message}
         )
 
-    if not twitch_client and not kick_client:
+    if not twitch_clients and not kick_clients:
         await websocket.close(code=4405)
         return
 
-    if twitch_client:
-        listener_tasks.append(asyncio.create_task(twitch_client.run()))
-    if kick_client:
-        listener_tasks.append(asyncio.create_task(kick_client.run()))
+    for client in twitch_clients:
+        listener_tasks.append(asyncio.create_task(client.run()))
+    for client in kick_clients:
+        listener_tasks.append(asyncio.create_task(client.run()))
 
     forward_task = asyncio.create_task(_forward_messages(websocket, queue, stop_event))
     completion_task = asyncio.create_task(_complete_on_listeners(listener_tasks, stop_event))

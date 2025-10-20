@@ -308,6 +308,8 @@ class KickChatClient:
         self.stop_event = stop_event
         self._badge_resolver = KickBadgeResolver(self.channel)
         self._chatroom_id: Optional[int] = None
+        self._channel_profile_image: Optional[str] = None
+        self._channel_display_name: Optional[str] = None
 
     async def run(self) -> None:
         try:
@@ -317,6 +319,7 @@ class KickChatClient:
             await self.queue.put(
                 {
                     "platform": "kick",
+                    "channel": self.channel,
                     "type": "error",
                     "message": f"Kick channel lookup failed: {exc}",
                 }
@@ -324,11 +327,17 @@ class KickChatClient:
             await self.queue.put(
                 {
                     "platform": "kick",
+                    "channel": self.channel,
                     "type": "status",
                     "message": f"Stopped listening to {self.channel}",
                 }
             )
             return
+
+        try:
+            await self._ensure_channel_profile()
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("Failed to resolve Kick channel profile image for %s", self.channel, exc_info=True)
 
         ws_url = self.WS_URL_TEMPLATE.format(cluster=self.CLUSTER, key=self.APP_KEY)
         channel_name = self.CHANNEL_TEMPLATE.format(chatroom_id=chatroom_id)
@@ -346,6 +355,7 @@ class KickChatClient:
             await self.queue.put(
                 {
                     "platform": "kick",
+                    "channel": self.channel,
                     "type": "error",
                     "message": f"Kick connection failed: {exc}",
                 }
@@ -354,6 +364,7 @@ class KickChatClient:
             await self.queue.put(
                 {
                     "platform": "kick",
+                    "channel": self.channel,
                     "type": "status",
                     "message": f"Disconnected from Kick chat for {self.channel}",
                 }
@@ -387,6 +398,7 @@ class KickChatClient:
                     await self.queue.put(
                         {
                             "platform": "kick",
+                            "channel": self.channel,
                             "type": "status",
                             "message": f"Connected to Kick chat for {self.channel}",
                         }
@@ -402,6 +414,7 @@ class KickChatClient:
                 await self.queue.put(
                     {
                         "platform": "kick",
+                        "channel": self.channel,
                         "type": "error",
                         "message": f"Kick reported error: {error_data}",
                     }
@@ -434,6 +447,63 @@ class KickChatClient:
         chatroom_id_int = int(chatroom_id)
         self._chatroom_id = chatroom_id_int
         return chatroom_id_int
+
+    async def _ensure_channel_profile(self) -> None:
+        if self._channel_profile_image is not None:
+            return
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5_0) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "Referer": f"https://kick.com/{self.channel}",
+            "Origin": "https://kick.com",
+            "Accept": "application/json",
+        }
+
+        token = getattr(settings, "kick_client_token", None)
+        if token:
+            headers["X-CLIENT-TOKEN"] = token
+
+        url = f"{self.API_BASE}/channels/{self.channel.replace('_', '-')}"
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(url, headers=headers)
+            response.raise_for_status()
+        except Exception:  # pragma: no cover - network heavy
+            logger.debug("Failed to load Kick channel profile for %s", self.channel, exc_info=True)
+            self._channel_profile_image = ""
+            return
+
+        try:
+            data = response.json()
+        except ValueError:  # pragma: no cover - network heavy
+            logger.debug("Kick channel profile response invalid for %s", self.channel)
+            self._channel_profile_image = ""
+            return
+
+        image_url = None
+        user = data.get("user") if isinstance(data, dict) else None
+        if isinstance(user, dict):
+            image_candidate = (
+                user.get("profile_pic")
+                or user.get("profilePic")
+                or user.get("profile_picture")
+                or user.get("profilePicture")
+            )
+            if isinstance(image_candidate, str):
+                image_url = image_candidate.strip() or None
+            display_candidate = (
+                user.get("display_name")
+                or user.get("displayName")
+                or user.get("username")
+                or user.get("name")
+            )
+            if isinstance(display_candidate, str) and display_candidate.strip():
+                self._channel_display_name = display_candidate.strip()
+        self._channel_profile_image = image_url or ""
+        if not self._channel_display_name:
+            self._channel_display_name = self.channel
 
     def _decode_pusher_payload(self, raw: str) -> Optional[dict]:
         try:
@@ -477,7 +547,13 @@ class KickChatClient:
             "type": "chat",
             "user": username,
             "message": content,
+            "channel": self.channel,
         }
+
+        if self._channel_profile_image:
+            payload["channel_profile_image"] = self._channel_profile_image
+        if self._channel_display_name:
+            payload.setdefault("channel_display_name", self._channel_display_name)
 
         if isinstance(sender, dict):
             identity = sender.get("identity")
