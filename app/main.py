@@ -2,7 +2,7 @@ import asyncio
 import os
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -92,14 +92,45 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         await websocket.close(code=4002)
         return
 
+    twitch_client: Optional[TwitchChatClient] = None
+    kick_client: Optional[KickChatClient] = None
+
+    twitch_error: Optional[str] = None
+    kick_error: Optional[str] = None
+
     if twitch_channel:
-        listener_tasks.append(
-            asyncio.create_task(TwitchChatClient(twitch_channel, queue, stop_event).run())
-        )
+        twitch_client = TwitchChatClient(twitch_channel, queue, stop_event)
+        try:
+            await twitch_client.ensure_channel_exists()
+        except RuntimeError as exc:
+            twitch_error = str(exc)
+            twitch_client = None
+
     if kick_channel:
-        listener_tasks.append(
-            asyncio.create_task(KickChatClient(kick_channel, queue, stop_event).run())
+        kick_client = KickChatClient(kick_channel, queue, stop_event)
+        try:
+            await kick_client.ensure_channel_exists()
+        except RuntimeError as exc:
+            kick_error = str(exc)
+            kick_client = None
+
+    if twitch_client is None and twitch_error:
+        await websocket.send_json(
+            {"platform": "twitch", "type": "error", "message": twitch_error}
         )
+    if kick_client is None and kick_error:
+        await websocket.send_json(
+            {"platform": "kick", "type": "error", "message": kick_error}
+        )
+
+    if not twitch_client and not kick_client:
+        await websocket.close(code=4405)
+        return
+
+    if twitch_client:
+        listener_tasks.append(asyncio.create_task(twitch_client.run()))
+    if kick_client:
+        listener_tasks.append(asyncio.create_task(kick_client.run()))
 
     forward_task = asyncio.create_task(_forward_messages(websocket, queue, stop_event))
     completion_task = asyncio.create_task(_complete_on_listeners(listener_tasks, stop_event))

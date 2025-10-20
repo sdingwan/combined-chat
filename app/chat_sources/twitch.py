@@ -87,6 +87,16 @@ class TwitchChatClient:
                 }
             )
 
+    async def ensure_channel_exists(self) -> None:
+        client_id = settings.twitch_client_id
+        client_secret = settings.twitch_client_secret
+        if not client_id or not client_secret:
+            return
+        token = await self._get_app_access_token(client_id, client_secret)
+        broadcaster_id = await self._lookup_broadcaster_id(token, client_id)
+        if not broadcaster_id:
+            raise RuntimeError(f"Twitch channel '{self.channel}' not found")
+
     @staticmethod
     def _unescape_tag_value(value: Optional[str]) -> Optional[str]:
         if value is None:

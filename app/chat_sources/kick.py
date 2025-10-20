@@ -307,10 +307,11 @@ class KickChatClient:
         self.queue = queue
         self.stop_event = stop_event
         self._badge_resolver = KickBadgeResolver(self.channel)
+        self._chatroom_id: Optional[int] = None
 
     async def run(self) -> None:
         try:
-            chatroom_id = await self._fetch_chatroom_id()
+            chatroom_id = self._chatroom_id or await self._fetch_chatroom_id()
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("Failed to resolve Kick channel %s: %s", self.channel, exc)
             await self.queue.put(
@@ -357,6 +358,9 @@ class KickChatClient:
                     "message": f"Disconnected from Kick chat for {self.channel}",
                 }
             )
+
+    async def ensure_channel_exists(self) -> None:
+        await self._fetch_chatroom_id()
 
     async def _consume(self, socket: websockets.WebSocketClientProtocol, channel_name: str) -> None:
         subscribed = False
@@ -427,7 +431,9 @@ class KickChatClient:
         if not chatroom_id:
             raise RuntimeError("Kick chatroom lookup response missing chatroom id")
 
-        return int(chatroom_id)
+        chatroom_id_int = int(chatroom_id)
+        self._chatroom_id = chatroom_id_int
+        return chatroom_id_int
 
     def _decode_pusher_payload(self, raw: str) -> Optional[dict]:
         try:

@@ -36,6 +36,8 @@ let unreadBufferedCount = 0;
 let pausedForScroll = false;
 let suppressScrollHandler = false;
 const currentChannels = { twitch: "", kick: "" };
+const platformConnectionState = { twitch: false, kick: false };
+const platformEverConnected = { twitch: false, kick: false };
 let replyTarget = null;
 let replyTargetElement = null;
 let preferredSendPlatform = "";
@@ -317,18 +319,91 @@ function resetConnectState() {
   connectBtn.disabled = false;
 }
 
+function normalizePlatformKey(value) {
+  const raw = typeof value === "string" ? value.toLowerCase() : "";
+  return raw === "twitch" || raw === "kick" ? raw : "";
+}
+
+function resetPlatformConnectionState(options = {}) {
+  const preserveEverConnected = Boolean(
+    options && options.preserveEverConnected
+  );
+  let changed = false;
+  Object.keys(platformConnectionState).forEach((key) => {
+    if (platformConnectionState[key]) {
+      changed = true;
+    }
+    platformConnectionState[key] = false;
+    if (!preserveEverConnected && platformEverConnected[key]) {
+      platformEverConnected[key] = false;
+      changed = true;
+    }
+  });
+  if (changed) {
+    updateMessageControls();
+  }
+}
+
+function updatePlatformConnectionState(payload) {
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
+  const platform = normalizePlatformKey(payload.platform);
+  if (!platform) {
+    return;
+  }
+  const type = typeof payload.type === "string" ? payload.type : "";
+  const message = typeof payload.message === "string" ? payload.message : "";
+  const normalizedMessage = message.toLowerCase();
+  let stateChanged = false;
+
+  if (!message && type !== "error") {
+    return;
+  }
+
+  const indicatesDisconnect =
+    normalizedMessage.includes("disconnected from") ||
+    normalizedMessage.includes("stopped listening to");
+
+  if (type === "status" && normalizedMessage.includes("connected to")) {
+    if (!platformConnectionState[platform]) {
+      platformConnectionState[platform] = true;
+      stateChanged = true;
+    }
+    if (!platformEverConnected[platform]) {
+      platformEverConnected[platform] = true;
+      stateChanged = true;
+    }
+  } else if (type === "status" && indicatesDisconnect) {
+    if (platformConnectionState[platform]) {
+      platformConnectionState[platform] = false;
+      stateChanged = true;
+    }
+  } else if (type === "error") {
+    if (platformConnectionState[platform]) {
+      platformConnectionState[platform] = false;
+      stateChanged = true;
+    }
+  }
+
+  if (stateChanged) {
+    updateMessageControls();
+  }
+}
+
 function announceDisconnectStatus() {
   const notices = [];
-  if (currentChannels.kick) {
+  if (platformEverConnected.kick && currentChannels.kick) {
     notices.push(`Disconnected from Kick chat for ${currentChannels.kick}`);
   }
-  if (currentChannels.twitch) {
+  if (platformEverConnected.twitch && currentChannels.twitch) {
     notices.push(`Disconnected from Twitch chat for ${currentChannels.twitch}`);
   }
   if (notices.length === 0) {
     notices.push("Disconnected.");
   }
   notices.forEach((notice) => setStatus(notice));
+  resetPlatformConnectionState();
 }
 
 function setStatus(message, options = {}) {
@@ -402,12 +477,16 @@ function hasAccount(platform) {
 function buildPlatformOptions() {
   const options = [];
   const twitchChannel = twitchInput.value.trim();
-  const twitchReady = twitchChannel && hasAccount("twitch");
+  const twitchReady = Boolean(
+    twitchChannel && hasAccount("twitch") && platformConnectionState.twitch
+  );
   if (twitchReady) {
     options.push({ value: "twitch", label: `Twitch (${twitchChannel})` });
   }
   const kickChannel = kickInput.value.trim();
-  const kickReady = kickChannel && hasAccount("kick");
+  const kickReady = Boolean(
+    kickChannel && hasAccount("kick") && platformConnectionState.kick
+  );
   if (kickReady) {
     options.push({ value: "kick", label: `Kick (${kickChannel})` });
   }
@@ -1646,6 +1725,7 @@ function appendMessage(payload) {
   if (!payload) {
     return;
   }
+  updatePlatformConnectionState(payload);
   const atBottom = isNearBottom();
   if (isChatPaused() || !atBottom) {
     if (!pausedForScroll && !atBottom) {
@@ -1902,6 +1982,8 @@ function connect(options = {}) {
     persistedState.channels.kick = kick;
     savePersistedState();
   }
+
+  resetPlatformConnectionState({ preserveEverConnected: true });
 
   if (socket) {
     socket.close();
