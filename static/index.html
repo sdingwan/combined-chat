@@ -20,13 +20,33 @@
         </div>
       </div>
       <form id="channelForm">
-        <label>
-          Twitch Streamer
-          <input id="twitchInput" type="text" placeholder="e.g. summit1g" autocomplete="off" />
+        <label class="channel-input">
+          <span class="channel-input__label">Twitch Streamer</span>
+          <div class="channel-input__control">
+            <input id="twitchInput" type="text" placeholder="e.g. summit1g" autocomplete="off" />
+            <span
+              id="twitchStatusIndicator"
+              class="connection-indicator"
+              role="status"
+              aria-live="polite"
+              aria-label="Twitch chat disconnected"
+              title="Twitch chat disconnected"
+            ></span>
+          </div>
         </label>
-        <label>
-          Kick Streamer
-          <input id="kickInput" type="text" placeholder="e.g. xqc" autocomplete="off" />
+        <label class="channel-input">
+          <span class="channel-input__label">Kick Streamer</span>
+          <div class="channel-input__control">
+            <input id="kickInput" type="text" placeholder="e.g. xqc" autocomplete="off" />
+            <span
+              id="kickStatusIndicator"
+              class="connection-indicator"
+              role="status"
+              aria-live="polite"
+              aria-label="Kick chat disconnected"
+              title="Kick chat disconnected"
+            ></span>
+          </div>
         </label>
         <div class="form-actions">
           <button id="connectBtn" type="submit" class="button--connect">Connect</button>

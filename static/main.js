@@ -7,6 +7,8 @@ const disconnectBtn = document.getElementById("disconnectBtn");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
 const platformSelect = document.getElementById("platformSelect");
+const twitchStatusIndicator = document.getElementById("twitchStatusIndicator");
+const kickStatusIndicator = document.getElementById("kickStatusIndicator");
 const authStatusEl = document.getElementById("authStatus");
 const twitchLoginBtn = document.getElementById("twitchLoginBtn");
 const kickLoginBtn = document.getElementById("kickLoginBtn");
@@ -150,6 +152,8 @@ function recordMessageForPersistence(payload) {
 if (persistenceAvailable) {
   loadPersistedState();
 }
+
+updateConnectionIndicators();
 
 const updateChatInputOffset = () => {
   if (!messageInputContainer) {
@@ -341,7 +345,29 @@ function resetPlatformConnectionState(options = {}) {
   });
   if (changed) {
     updateMessageControls();
+    updateConnectionIndicators();
   }
+}
+
+function updateConnectionIndicators() {
+  const pairs = [
+    { platform: "twitch", indicator: twitchStatusIndicator },
+    { platform: "kick", indicator: kickStatusIndicator },
+  ];
+
+  pairs.forEach(({ platform, indicator }) => {
+    if (!indicator) {
+      return;
+    }
+    const connected = Boolean(platformConnectionState[platform]);
+    indicator.classList.toggle("is-connected", connected);
+    indicator.classList.remove("is-error");
+    const label = connected
+      ? `${formatPlatformName(platform)} chat connected`
+      : `${formatPlatformName(platform)} chat disconnected`;
+    indicator.setAttribute("aria-label", label);
+    indicator.setAttribute("title", label);
+  });
 }
 
 function updatePlatformConnectionState(payload) {
@@ -388,6 +414,7 @@ function updatePlatformConnectionState(payload) {
 
   if (stateChanged) {
     updateMessageControls();
+    updateConnectionIndicators();
   }
 }
 
