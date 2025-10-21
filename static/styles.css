@@ -554,7 +554,7 @@ button.is-busy.button--connect::after {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   line-height: 1.4;
   padding: 6px 8px;
   word-break: break-word;
@@ -596,7 +596,7 @@ button.is-busy.button--connect::after {
 .message .meta {
   flex: 1;
   min-width: 0;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   color: #efeff1;
   word-break: break-word;
 }
