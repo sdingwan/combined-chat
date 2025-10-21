@@ -1,6 +1,7 @@
 :root {
   color-scheme: dark light;
   font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 80%;
   --twitch-purple: #9146ff;
   --twitch-shadow: rgba(145, 70, 255, 0.35);
   --kick-green: #53fc18;
@@ -553,7 +554,7 @@ button.is-busy.button--connect::after {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 0.93rem;
+  font-size: 0.85rem;
   line-height: 1.4;
   padding: 6px 8px;
   word-break: break-word;
@@ -595,7 +596,7 @@ button.is-busy.button--connect::after {
 .message .meta {
   flex: 1;
   min-width: 0;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: #efeff1;
   word-break: break-word;
 }
