@@ -36,7 +36,7 @@ body {
 }
 
 body.chat-only-mode {
-  padding: 12px 0 0;
+  padding: 16px 0 0;
 }
 
 body.chat-only-mode .container {
@@ -412,6 +412,7 @@ button.is-busy.button--connect::after {
 }
 
 .chat-area {
+  --chat-font-scale: 1;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -422,8 +423,8 @@ button.is-busy.button--connect::after {
   --btn-bg: transparent;
   --btn-shadow: none;
   padding: 0;
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   border: none;
   background: transparent;
   color: rgba(255, 255, 255, 0.85);
@@ -462,6 +463,57 @@ button.is-busy.button--connect::after {
   color: rgba(255, 255, 255, 0.6);
 }
 
+.chat-font-toggle {
+  position: absolute;
+  top: 58px;
+  right: 18px;
+  width: 30px;
+  background: rgba(18, 19, 23, 0.92);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 6px 0;
+  gap: 4px;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.3);
+  z-index: 5;
+}
+
+.chat-font-toggle__button {
+  all: unset;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.95rem;
+  text-align: center;
+  line-height: 1;
+  cursor: pointer;
+  padding: 3px 0;
+  display: grid;
+  place-items: center;
+  box-shadow: none;
+  transition: color 0.15s ease, transform 0.12s ease;
+}
+
+.chat-font-toggle__button:hover,
+.chat-font-toggle__button:focus-visible {
+  color: #ffffff;
+  background: transparent;
+  transform: scale(1.08);
+  box-shadow: none;
+  outline: none;
+}
+
+.chat-font-toggle__button[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chat-font-toggle__divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 0 5px;
+}
+
 #chat {
   position: relative;
   height: clamp(560px, 72vh, 900px);
@@ -475,7 +527,7 @@ button.is-busy.button--connect::after {
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 1px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
@@ -569,7 +621,7 @@ button.is-busy.button--connect::after {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 0.85rem;
+  font-size: calc(0.95rem * var(--chat-font-scale, 1));
   line-height: 1.4;
   padding: 6px 8px;
   word-break: break-word;
@@ -611,7 +663,7 @@ button.is-busy.button--connect::after {
 .message .meta {
   flex: 1;
   min-width: 0;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--chat-font-scale, 1));
   color: #efeff1;
   word-break: break-word;
 }
@@ -667,8 +719,8 @@ button.is-busy.button--connect::after {
 }
 
 .message .content img.emote {
-  height: 20px;
-  width: 20px;
+  height: calc(20px * var(--chat-font-scale, 1));
+  width: calc(20px * var(--chat-font-scale, 1));
   vertical-align: middle;
   margin: 0 2px;
 }

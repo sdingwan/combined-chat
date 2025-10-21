@@ -25,6 +25,8 @@ const replyPreviewMessage = document.getElementById("replyPreviewMessage");
 const replyCancelButton = document.getElementById("replyCancelButton");
 const fullscreenToggle = document.getElementById("fullscreenToggle");
 const chatArea = document.querySelector(".chat-area");
+const fontSizeIncrease = document.getElementById("fontSizeIncrease");
+const fontSizeDecrease = document.getElementById("fontSizeDecrease");
 const messageInputContainer = document.querySelector(".message-input-container");
 let chatInputOffset = 0;
 
@@ -59,6 +61,7 @@ const platformAttempted = { twitch: false, kick: false };
 let replyTarget = null;
 let replyTargetElement = null;
 let preferredSendPlatform = "";
+let chatFontScale = 1;
 
 const storageKey = "combinedChatState";
 
@@ -307,6 +310,41 @@ if (fullscreenToggle && chatArea) {
   });
 
   updateFullscreenState();
+}
+if (chatArea && (fontSizeIncrease || fontSizeDecrease)) {
+  const fontScaleBounds = { min: 0.75, max: 1.3, step: 0.1 };
+  const applyChatFontScale = () => {
+    chatArea.style.setProperty("--chat-font-scale", chatFontScale.toFixed(2));
+    if (fontSizeIncrease) {
+      const atMax = chatFontScale >= fontScaleBounds.max - 0.001;
+      fontSizeIncrease.disabled = atMax;
+    }
+    if (fontSizeDecrease) {
+      const atMin = chatFontScale <= fontScaleBounds.min + 0.001;
+      fontSizeDecrease.disabled = atMin;
+    }
+  };
+  const setChatFontScale = (next) => {
+    const clamped = Math.min(
+      fontScaleBounds.max,
+      Math.max(fontScaleBounds.min, Math.round(next * 100) / 100)
+    );
+    if (clamped !== chatFontScale) {
+      chatFontScale = clamped;
+      applyChatFontScale();
+    }
+  };
+  applyChatFontScale();
+  if (fontSizeIncrease) {
+    fontSizeIncrease.addEventListener("click", () => {
+      setChatFontScale(chatFontScale + fontScaleBounds.step);
+    });
+  }
+  if (fontSizeDecrease) {
+    fontSizeDecrease.addEventListener("click", () => {
+      setChatFontScale(chatFontScale - fontScaleBounds.step);
+    });
+  }
 }
 const moderationOptions = [
   { action: "ban", label: "🚫", ariaLabel: "Ban user", variant: "danger", isIcon: true },
