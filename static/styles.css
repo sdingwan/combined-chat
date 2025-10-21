@@ -35,6 +35,24 @@ body {
   overflow-x: hidden;
 }
 
+body.chat-only-mode {
+  padding: 12px 0 0;
+}
+
+body.chat-only-mode .container {
+  gap: 0;
+  min-height: 100vh;
+}
+
+body.chat-only-mode .auth-panel,
+body.chat-only-mode #channelForm {
+  display: none;
+}
+
+body.chat-only-mode .chat-area.chat-area--expanded {
+  padding: 0;
+}
+
 .container {
   width: 100%;
   max-width: none;
@@ -461,8 +479,7 @@ button.is-busy.button--connect::after {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
-.chat-area:fullscreen,
-.chat-area:-webkit-full-screen {
+.chat-area.chat-area--expanded {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -473,8 +490,7 @@ button.is-busy.button--connect::after {
   box-sizing: border-box;
 }
 
-.chat-area:fullscreen #chat,
-.chat-area:-webkit-full-screen #chat {
+.chat-area.chat-area--expanded #chat {
   flex: 1;
   height: auto;
   min-height: 0;
@@ -538,8 +554,7 @@ button.is-busy.button--connect::after {
   padding: 0 4px 4px;
 }
 
-.chat-area:fullscreen .message-input-container,
-.chat-area:-webkit-full-screen .message-input-container {
+.chat-area.chat-area--expanded .message-input-container {
   padding: 0;
 }
 
@@ -554,7 +569,7 @@ button.is-busy.button--connect::after {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   line-height: 1.4;
   padding: 6px 8px;
   word-break: break-word;
@@ -596,7 +611,7 @@ button.is-busy.button--connect::after {
 .message .meta {
   flex: 1;
   min-width: 0;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: #efeff1;
   word-break: break-word;
 }

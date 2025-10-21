@@ -290,55 +290,22 @@ if (messageInputContainer) {
 }
 
 if (fullscreenToggle && chatArea) {
-  const getFullscreenElement = () =>
-    document.fullscreenElement || document.webkitFullscreenElement || null;
-
-  const requestChatFullscreen = () => {
-    if (chatArea.requestFullscreen) {
-      return chatArea.requestFullscreen();
-    }
-    if (chatArea.webkitRequestFullscreen) {
-      chatArea.webkitRequestFullscreen();
-      return Promise.resolve();
-    }
-    return Promise.reject(new Error("Fullscreen not supported"));
-  };
-
-  const exitFullscreen = () => {
-    if (document.exitFullscreen) {
-      return document.exitFullscreen();
-    }
-    if (document.webkitExitFullscreen) {
-      document.webkitExitFullscreen();
-      return Promise.resolve();
-    }
-    return Promise.resolve();
-  };
-
   const updateFullscreenState = () => {
-    const isActive = getFullscreenElement() === chatArea;
+    const isActive = chatArea.classList.contains("chat-area--expanded");
     fullscreenToggle.classList.toggle("is-active", isActive);
     fullscreenToggle.setAttribute(
       "aria-label",
       isActive ? "Exit fullscreen" : "Enter fullscreen"
     );
+    document.body.classList.toggle("chat-only-mode", isActive);
     updatePauseBannerOffset();
   };
 
-  fullscreenToggle.addEventListener("click", async () => {
-    try {
-      if (getFullscreenElement() === chatArea) {
-        await exitFullscreen();
-      } else {
-        await requestChatFullscreen();
-      }
-    } catch (err) {
-      console.warn("Unable to toggle fullscreen mode", err);
-    }
+  fullscreenToggle.addEventListener("click", () => {
+    chatArea.classList.toggle("chat-area--expanded");
+    updateFullscreenState();
   });
 
-  document.addEventListener("fullscreenchange", updateFullscreenState);
-  document.addEventListener("webkitfullscreenchange", updateFullscreenState);
   updateFullscreenState();
 }
 const moderationOptions = [
