@@ -147,16 +147,18 @@
           </button>
         </div>
         <div class="message-input-container">
-          <select id="platformSelect" disabled>
-            <option value="">Select platform</option>
-          </select>
-          <input 
-            id="messageInput" 
-          type="text" 
-          placeholder="Type your message here..." 
-          autocomplete="off"
-            disabled
-          />
+          <div id="messageInputWrapper" class="message-input-field message-input--neutral">
+            <select id="platformSelect" disabled>
+              <option value="">Select platform</option>
+            </select>
+            <input 
+              id="messageInput" 
+              type="text" 
+              placeholder="Type your message here..." 
+              autocomplete="off"
+              disabled
+            />
+          </div>
           <button id="sendButton" class="button--neutral" disabled>Send</button>
         </div>
       </div>

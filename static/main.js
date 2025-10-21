@@ -6,6 +6,7 @@ const connectBtn = document.getElementById("connectBtn");
 const disconnectBtn = document.getElementById("disconnectBtn");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
+const messageInputWrapper = document.getElementById("messageInputWrapper");
 const platformSelect = document.getElementById("platformSelect");
 const twitchLabel = document.getElementById("twitchLabel");
 const kickLabel = document.getElementById("kickLabel");
@@ -872,6 +873,10 @@ function applySendButtonStyle(selectionValue) {
           : "message-input--neutral";
     messageInput.classList.remove(...messageInputPlatformClasses);
     messageInput.classList.add(inputClass);
+    if (messageInputWrapper) {
+      messageInputWrapper.classList.remove(...messageInputPlatformClasses);
+      messageInputWrapper.classList.add(inputClass);
+    }
   }
 }
 
@@ -1183,6 +1188,9 @@ function updateMessageControls() {
   }
   const canSend = connectionReady && options.length > 0;
   messageInput.disabled = !canSend;
+  if (messageInputWrapper) {
+    messageInputWrapper.classList.toggle("is-disabled", messageInput.disabled);
+  }
   sendButton.disabled = !canSend;
   const selectedPlatform = !platformSelect.disabled ? platformSelect.value : "";
   if (!replyTarget && selectedPlatform) {
@@ -1195,7 +1203,7 @@ function updateMessageControls() {
   }
 
   if (!connectionReady) {
-    messageInput.placeholder = "Connect to a chat to send messages";
+    messageInput.placeholder = "Connect to enable messaging";
   } else if (!options.length) {
     messageInput.placeholder = replyTarget
       ? "Link your account to reply"
