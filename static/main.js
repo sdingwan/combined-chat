@@ -810,7 +810,7 @@ function buildPlatformOptions() {
       );
     }
     twitchConnected.forEach((channel) => {
-      addOption(`twitch:${channel}`, `Twitch (#${channel})`);
+      addOption(`twitch:${channel}`, `Twitch (${channel})`);
     });
   }
 
@@ -822,7 +822,7 @@ function buildPlatformOptions() {
       );
     }
     kickConnected.forEach((channel) => {
-      addOption(`kick:${channel}`, `Kick (#${channel})`);
+      addOption(`kick:${channel}`, `Kick (${channel})`);
     });
   }
 
