@@ -63,8 +63,28 @@ let replyTarget = null;
 let replyTargetElement = null;
 let preferredSendPlatform = "";
 let chatFontScale = 1.2;
+const maxOutgoingMessageLength = 500;
 
 const storageKey = "combinedChatState";
+let lengthLimitWarningActive = false;
+
+if (messageInput) {
+  messageInput.addEventListener("input", () => {
+    const { value } = messageInput;
+    const overLimit = value.length > maxOutgoingMessageLength;
+    if (overLimit) {
+      messageInput.value = value.slice(0, maxOutgoingMessageLength);
+      if (!lengthLimitWarningActive) {
+        setStatus(`Messages are limited to ${maxOutgoingMessageLength} characters.`, {
+          type: "error",
+        });
+        lengthLimitWarningActive = true;
+      }
+    } else if (lengthLimitWarningActive && value.length < maxOutgoingMessageLength) {
+      lengthLimitWarningActive = false;
+    }
+  });
+}
 
 function createDefaultPersistedState() {
   return {
@@ -2706,6 +2726,12 @@ async function sendMessage() {
     return;
   }
   if (!message) {
+    return;
+  }
+  if (message.length > maxOutgoingMessageLength) {
+    setStatus(`Messages are limited to ${maxOutgoingMessageLength} characters.`, {
+      type: "error",
+    });
     return;
   }
   if (!socket || socket.readyState !== WebSocket.OPEN) {
