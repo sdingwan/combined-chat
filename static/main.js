@@ -6,6 +6,7 @@ const connectBtn = document.getElementById("connectBtn");
 const disconnectBtn = document.getElementById("disconnectBtn");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
+const messageInputWrapper = document.getElementById("messageInputWrapper");
 const platformSelect = document.getElementById("platformSelect");
 const twitchLabel = document.getElementById("twitchLabel");
 const kickLabel = document.getElementById("kickLabel");
@@ -25,6 +26,8 @@ const replyPreviewMessage = document.getElementById("replyPreviewMessage");
 const replyCancelButton = document.getElementById("replyCancelButton");
 const fullscreenToggle = document.getElementById("fullscreenToggle");
 const chatArea = document.querySelector(".chat-area");
+const fontSizeIncrease = document.getElementById("fontSizeIncrease");
+const fontSizeDecrease = document.getElementById("fontSizeDecrease");
 const messageInputContainer = document.querySelector(".message-input-container");
 let chatInputOffset = 0;
 
@@ -59,8 +62,29 @@ const platformAttempted = { twitch: false, kick: false };
 let replyTarget = null;
 let replyTargetElement = null;
 let preferredSendPlatform = "";
+let chatFontScale = 1.2;
+const maxOutgoingMessageLength = 500;
 
 const storageKey = "combinedChatState";
+let lengthLimitWarningActive = false;
+
+if (messageInput) {
+  messageInput.addEventListener("input", () => {
+    const { value } = messageInput;
+    const overLimit = value.length > maxOutgoingMessageLength;
+    if (overLimit) {
+      messageInput.value = value.slice(0, maxOutgoingMessageLength);
+      if (!lengthLimitWarningActive) {
+        setStatus(`Messages are limited to ${maxOutgoingMessageLength} characters.`, {
+          type: "error",
+        });
+        lengthLimitWarningActive = true;
+      }
+    } else if (lengthLimitWarningActive && value.length < maxOutgoingMessageLength) {
+      lengthLimitWarningActive = false;
+    }
+  });
+}
 
 function createDefaultPersistedState() {
   return {
@@ -307,6 +331,41 @@ if (fullscreenToggle && chatArea) {
   });
 
   updateFullscreenState();
+}
+if (chatArea && (fontSizeIncrease || fontSizeDecrease)) {
+  const fontScaleBounds = { min: 0.85, max: 2.5, step: 0.1 };
+  const applyChatFontScale = () => {
+    chatArea.style.setProperty("--chat-font-scale", chatFontScale.toFixed(2));
+    if (fontSizeIncrease) {
+      const atMax = chatFontScale >= fontScaleBounds.max - 0.001;
+      fontSizeIncrease.disabled = atMax;
+    }
+    if (fontSizeDecrease) {
+      const atMin = chatFontScale <= fontScaleBounds.min + 0.001;
+      fontSizeDecrease.disabled = atMin;
+    }
+  };
+  const setChatFontScale = (next) => {
+    const clamped = Math.min(
+      fontScaleBounds.max,
+      Math.max(fontScaleBounds.min, Math.round(next * 100) / 100)
+    );
+    if (clamped !== chatFontScale) {
+      chatFontScale = clamped;
+      applyChatFontScale();
+    }
+  };
+  applyChatFontScale();
+  if (fontSizeIncrease) {
+    fontSizeIncrease.addEventListener("click", () => {
+      setChatFontScale(chatFontScale + fontScaleBounds.step);
+    });
+  }
+  if (fontSizeDecrease) {
+    fontSizeDecrease.addEventListener("click", () => {
+      setChatFontScale(chatFontScale - fontScaleBounds.step);
+    });
+  }
 }
 const moderationOptions = [
   { action: "ban", label: "🚫", ariaLabel: "Ban user", variant: "danger", isIcon: true },
@@ -834,6 +893,10 @@ function applySendButtonStyle(selectionValue) {
           : "message-input--neutral";
     messageInput.classList.remove(...messageInputPlatformClasses);
     messageInput.classList.add(inputClass);
+    if (messageInputWrapper) {
+      messageInputWrapper.classList.remove(...messageInputPlatformClasses);
+      messageInputWrapper.classList.add(inputClass);
+    }
   }
 }
 
@@ -1145,6 +1208,9 @@ function updateMessageControls() {
   }
   const canSend = connectionReady && options.length > 0;
   messageInput.disabled = !canSend;
+  if (messageInputWrapper) {
+    messageInputWrapper.classList.toggle("is-disabled", messageInput.disabled);
+  }
   sendButton.disabled = !canSend;
   const selectedPlatform = !platformSelect.disabled ? platformSelect.value : "";
   if (!replyTarget && selectedPlatform) {
@@ -1157,7 +1223,7 @@ function updateMessageControls() {
   }
 
   if (!connectionReady) {
-    messageInput.placeholder = "Connect to a chat to send messages";
+    messageInput.placeholder = "Connect to enable messaging";
   } else if (!options.length) {
     messageInput.placeholder = replyTarget
       ? "Link your account to reply"
@@ -2660,6 +2726,12 @@ async function sendMessage() {
     return;
   }
   if (!message) {
+    return;
+  }
+  if (message.length > maxOutgoingMessageLength) {
+    setStatus(`Messages are limited to ${maxOutgoingMessageLength} characters.`, {
+      type: "error",
+    });
     return;
   }
   if (!socket || socket.readyState !== WebSocket.OPEN) {
