@@ -25,6 +25,8 @@ class TwitchChatClient:
         self._badge_cache: dict[tuple[str, str], dict[str, str]] = {}
         self._badge_token: Optional[str] = None
         self._badge_token_expires_at: float = 0.0
+        self._channel_profile_image: Optional[str] = None
+        self._channel_display_name: Optional[str] = None
 
     async def run(self) -> None:
         nickname = f"justinfan{secrets.randbelow(1_000_000):06d}"
@@ -39,6 +41,7 @@ class TwitchChatClient:
             await self.queue.put(
                 {
                     "platform": "twitch",
+                    "channel": self.channel,
                     "type": "status",
                     "message": f"Connected to Twitch chat for {self.channel}",
                 }
@@ -68,6 +71,7 @@ class TwitchChatClient:
             await self.queue.put(
                 {
                     "platform": "twitch",
+                    "channel": self.channel,
                     "type": "error",
                     "message": f"Twitch connection failed: {exc}",
                 }
@@ -82,6 +86,7 @@ class TwitchChatClient:
             await self.queue.put(
                 {
                     "platform": "twitch",
+                    "channel": self.channel,
                     "type": "status",
                     "message": f"Disconnected from Twitch chat for {self.channel}",
                 }
@@ -93,9 +98,18 @@ class TwitchChatClient:
         if not client_id or not client_secret:
             return
         token = await self._get_app_access_token(client_id, client_secret)
-        broadcaster_id = await self._lookup_broadcaster_id(token, client_id)
+        broadcaster = await self._lookup_broadcaster(token, client_id)
+        if not broadcaster:
+            raise RuntimeError(f"Twitch channel '{self.channel}' not found")
+        broadcaster_id = broadcaster.get("id")
         if not broadcaster_id:
             raise RuntimeError(f"Twitch channel '{self.channel}' not found")
+        self._channel_profile_image = broadcaster.get("profile_image_url") or None
+        self._channel_display_name = (
+            broadcaster.get("display_name")
+            or broadcaster.get("login")
+            or self.channel
+        )
 
     @staticmethod
     def _unescape_tag_value(value: Optional[str]) -> Optional[str]:
@@ -135,6 +149,7 @@ class TwitchChatClient:
                 "type": "chat",
                 "user": display_name,
                 "message": text,
+                "channel": self.channel,
             }
 
             message_id = tags.get("id")
@@ -170,6 +185,11 @@ class TwitchChatClient:
             badges = self._resolve_badges(tags.get("badges"))
             if badges:
                 message_payload["badges"] = badges
+
+            if self._channel_profile_image:
+                message_payload["channel_profile_image"] = self._channel_profile_image
+            if self._channel_display_name:
+                message_payload.setdefault("channel_display_name", self._channel_display_name)
 
             return message_payload
         except (IndexError, ValueError):
@@ -231,11 +251,21 @@ class TwitchChatClient:
         try:
             token = await self._get_app_access_token(client_id, client_secret)
             self._badge_cache.update(await self._fetch_badges(token, client_id, None))
-            broadcaster_id = await self._lookup_broadcaster_id(token, client_id)
+            broadcaster = await self._lookup_broadcaster(token, client_id)
+            broadcaster_id = broadcaster.get("id") if broadcaster else None
             if broadcaster_id:
                 self._badge_cache.update(
                     await self._fetch_badges(token, client_id, broadcaster_id)
                 )
+            if broadcaster:
+                if not self._channel_profile_image:
+                    self._channel_profile_image = broadcaster.get("profile_image_url") or None
+                if not self._channel_display_name:
+                    self._channel_display_name = (
+                        broadcaster.get("display_name")
+                        or broadcaster.get("login")
+                        or self.channel
+                    )
         except Exception:  # pragma: no cover - network heavy
             logger.exception("Failed to load Twitch badges for #%s", self.channel)
             self._badge_cache.clear()
@@ -273,7 +303,7 @@ class TwitchChatClient:
         self._badge_token = token
         return token
 
-    async def _lookup_broadcaster_id(self, token: str, client_id: str) -> Optional[str]:
+    async def _lookup_broadcaster(self, token: str, client_id: str) -> Optional[dict]:
         params = {"login": self.channel}
         headers = {
             "Authorization": f"Bearer {token}",
@@ -298,9 +328,9 @@ class TwitchChatClient:
 
         entries = data.get("data") if isinstance(data, dict) else None
         if isinstance(entries, list) and entries:
-            broadcaster_id = entries[0].get("id")
-            if broadcaster_id:
-                return str(broadcaster_id)
+            entry = entries[0]
+            if isinstance(entry, dict):
+                return entry
         return None
 
     async def _fetch_badges(

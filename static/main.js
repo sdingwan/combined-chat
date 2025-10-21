@@ -7,8 +7,10 @@ const disconnectBtn = document.getElementById("disconnectBtn");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
 const platformSelect = document.getElementById("platformSelect");
-const twitchStatusIndicator = document.getElementById("twitchStatusIndicator");
-const kickStatusIndicator = document.getElementById("kickStatusIndicator");
+const twitchLabel = document.getElementById("twitchLabel");
+const kickLabel = document.getElementById("kickLabel");
+const twitchInputOverlay = document.getElementById("twitchInputDecor");
+const kickInputOverlay = document.getElementById("kickInputDecor");
 const authStatusEl = document.getElementById("authStatus");
 const twitchLoginBtn = document.getElementById("twitchLoginBtn");
 const kickLoginBtn = document.getElementById("kickLoginBtn");
@@ -29,6 +31,7 @@ let chatInputOffset = 0;
 let socket = null;
 let sendingMessage = false;
 let connectionReady = false;
+let connectionFinalized = false;
 let authState = { authenticated: false, accounts: [], user: null };
 const maxMessages = 50;
 const scrollLockEpsilon = 4;
@@ -37,9 +40,22 @@ const bufferedMessages = [];
 let unreadBufferedCount = 0;
 let pausedForScroll = false;
 let suppressScrollHandler = false;
-const currentChannels = { twitch: "", kick: "" };
+const currentChannels = { twitch: [], kick: [] };
 const platformConnectionState = { twitch: false, kick: false };
 const platformEverConnected = { twitch: false, kick: false };
+const connectedChannelSets = {
+  twitch: new Set(),
+  kick: new Set(),
+};
+const everConnectedChannelSets = {
+  twitch: new Set(),
+  kick: new Set(),
+};
+const attemptedChannelSets = {
+  twitch: new Set(),
+  kick: new Set(),
+};
+const platformAttempted = { twitch: false, kick: false };
 let replyTarget = null;
 let replyTargetElement = null;
 let preferredSendPlatform = "";
@@ -49,7 +65,7 @@ const storageKey = "combinedChatState";
 function createDefaultPersistedState() {
   return {
     connected: false,
-    channels: { twitch: "", kick: "" },
+    channels: { twitch: [], kick: [] },
     messages: [],
   };
 }
@@ -85,6 +101,106 @@ function sanitizePersistedMessages(messages) {
   return sanitized.slice(startIndex);
 }
 
+function normalizeChannelSlug(platform, value) {
+  if (value == null) {
+    return "";
+  }
+  const raw = String(value).trim();
+  if (!raw) {
+    return "";
+  }
+  let slug = raw
+    .replace(/^https?:\/\/(www\.)?twitch\.tv\//i, "")
+    .replace(/^https?:\/\/(www\.)?kick\.com\//i, "")
+    .replace(/^[@#]/, "")
+    .replace(/\s+/g, "");
+  if (platform === "kick") {
+    slug = slug.replace(/_/g, "-");
+  }
+  return slug.toLowerCase();
+}
+
+function parseChannelList(raw, platform) {
+  const result = [];
+  const seen = new Set();
+  const tokens = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw.replace(/\n/g, ",").split(",")
+      : raw != null
+        ? [raw]
+        : [];
+  for (const token of tokens) {
+    const cleaned = normalizeChannelSlug(platform, token);
+    if (!cleaned || seen.has(cleaned)) {
+      continue;
+    }
+    seen.add(cleaned);
+    result.push(cleaned);
+    if (result.length >= 10) {
+      break;
+    }
+  }
+  return result;
+}
+
+function formatChannelList(channels) {
+  if (!Array.isArray(channels) || !channels.length) {
+    return "";
+  }
+  return channels.join(", ");
+}
+
+function channelArraysEqual(a, b) {
+  if (a === b) {
+    return true;
+  }
+  if (!Array.isArray(a) || !Array.isArray(b)) {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function platformOptionValue(platform, channel = "*") {
+  if (platform === "both") {
+    return "both:*";
+  }
+  const key = normalizePlatformKey(platform);
+  if (!key) {
+    return "";
+  }
+  const slug =
+    channel && channel !== "*"
+      ? normalizeChannelSlug(key, channel)
+      : "*";
+  return slug === "*" ? `${key}:*` : `${key}:${slug}`;
+}
+
+function parsePlatformOptionValue(value) {
+  if (typeof value !== "string" || !value) {
+    return null;
+  }
+  if (value === "both:*") {
+    return { platform: "both", channel: "*" };
+  }
+  const match = value.match(/^(twitch|kick)(?::(.+))?$/);
+  if (!match) {
+    return null;
+  }
+  const platform = match[1];
+  const channelPart = match[2] ?? "*";
+  const channel = channelPart === "*" ? "*" : normalizeChannelSlug(platform, channelPart);
+  return { platform, channel };
+}
+
 function loadPersistedState() {
   if (!persistenceAvailable) {
     return;
@@ -101,10 +217,8 @@ function loadPersistedState() {
     const nextState = createDefaultPersistedState();
     nextState.connected = Boolean(data.connected);
     if (data.channels && typeof data.channels === "object") {
-      nextState.channels.twitch =
-        typeof data.channels.twitch === "string" ? data.channels.twitch : "";
-      nextState.channels.kick =
-        typeof data.channels.kick === "string" ? data.channels.kick : "";
+      nextState.channels.twitch = parseChannelList(data.channels.twitch, "twitch");
+      nextState.channels.kick = parseChannelList(data.channels.kick, "kick");
     }
     nextState.messages = sanitizePersistedMessages(data.messages);
     persistedState = nextState;
@@ -312,15 +426,25 @@ function markConnected() {
   connectBtn.textContent = "Connected";
   connectBtn.classList.add("is-active");
   connectBtn.disabled = true;
+  connectionFinalized = true;
 }
 
 function resetConnectState() {
   if (!connectBtn) {
     return;
   }
+  connectionFinalized = false;
   connectBtn.classList.remove("is-active");
   connectBtn.textContent = "Connect";
   connectBtn.disabled = false;
+}
+
+function finalizeConnection() {
+  if (!connectBtn || connectionFinalized) {
+    return;
+  }
+  setButtonBusy(connectBtn, false);
+  markConnected();
 }
 
 function normalizePlatformKey(value) {
@@ -332,15 +456,38 @@ function resetPlatformConnectionState(options = {}) {
   const preserveEverConnected = Boolean(
     options && options.preserveEverConnected
   );
+  const resetAttempts = Boolean(options && options.resetAttempts);
   let changed = false;
   Object.keys(platformConnectionState).forEach((key) => {
-    if (platformConnectionState[key]) {
+    const activeSet = connectedChannelSets[key];
+    if (activeSet && activeSet.size) {
+      activeSet.clear();
       changed = true;
     }
+    const everSet = everConnectedChannelSets[key];
     platformConnectionState[key] = false;
-    if (!preserveEverConnected && platformEverConnected[key]) {
-      platformEverConnected[key] = false;
-      changed = true;
+    if (!preserveEverConnected) {
+      if (everSet && everSet.size) {
+        everSet.clear();
+        changed = true;
+      }
+      if (platformEverConnected[key]) {
+        platformEverConnected[key] = false;
+        changed = true;
+      }
+    } else if (everSet && everSet.size) {
+      platformEverConnected[key] = true;
+    }
+    if (resetAttempts) {
+      const attemptedSet = attemptedChannelSets[key];
+      if (attemptedSet && attemptedSet.size) {
+        attemptedSet.clear();
+        changed = true;
+      }
+      if (platformAttempted[key]) {
+        platformAttempted[key] = false;
+        changed = true;
+      }
     }
   });
   if (changed) {
@@ -349,25 +496,125 @@ function resetPlatformConnectionState(options = {}) {
   }
 }
 
-function updateConnectionIndicators() {
+function setAttemptedChannels(platform, channels) {
+  const key = normalizePlatformKey(platform);
+  if (!key) {
+    return;
+  }
+  const attemptedSet = attemptedChannelSets[key];
+  if (!attemptedSet) {
+    return;
+  }
+  attemptedSet.clear();
+  if (Array.isArray(channels)) {
+    channels.forEach((channel) => {
+      if (channel) {
+        attemptedSet.add(channel);
+      }
+    });
+  }
+  if (channels && channels.length) {
+    platformAttempted[key] = true;
+  }
+}
+
+function renderChannelInputDecorations() {
   const pairs = [
-    { platform: "twitch", indicator: twitchStatusIndicator },
-    { platform: "kick", indicator: kickStatusIndicator },
+    {
+      platform: "twitch",
+      input: twitchInput,
+      overlay: twitchInputOverlay,
+    },
+    {
+      platform: "kick",
+      input: kickInput,
+      overlay: kickInputOverlay,
+    },
   ];
 
-  pairs.forEach(({ platform, indicator }) => {
-    if (!indicator) {
+  pairs.forEach(({ platform, input, overlay }) => {
+    if (!input || !overlay) {
+      return;
+    }
+    const control = input.parentElement;
+    if (!control) {
+      return;
+    }
+    const rawValue = input.value || "";
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+      control.classList.remove("has-decoration");
+      overlay.textContent = "";
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    const connectedSet = connectedChannelSets[platform] || new Set();
+    const attemptedSet = attemptedChannelSets[platform] || new Set();
+    const attempted = Boolean(platformAttempted[platform]);
+    const segments = rawValue.split(/(,\s*)/);
+    let hasDecoration = false;
+
+    segments.forEach((segment) => {
+      if (!segment) {
+        return;
+      }
+      if (/,/.test(segment)) {
+        const separator = document.createElement("span");
+        separator.className = "channel-input__separator";
+        separator.textContent = segment;
+        fragment.appendChild(separator);
+        return;
+      }
+      const token = document.createElement("span");
+      token.className = "channel-input__token";
+      token.textContent = segment;
+      const slug = normalizeChannelSlug(platform, segment);
+      const isValid = Boolean(slug);
+      const isConnected = isValid && connectedSet.has(slug);
+      if (isConnected) {
+        token.classList.add("is-connected");
+        hasDecoration = true;
+      } else if (isValid && attempted && attemptedSet.has(slug)) {
+        token.classList.add("is-disconnected");
+        hasDecoration = true;
+      }
+      fragment.appendChild(token);
+    });
+    if (hasDecoration) {
+      overlay.replaceChildren(fragment);
+      control.classList.add("has-decoration");
+    } else {
+      control.classList.remove("has-decoration");
+      overlay.innerHTML = "";
+    }
+  });
+}
+
+function updateConnectionIndicators() {
+  const pairs = [
+    { platform: "twitch", label: twitchLabel },
+    { platform: "kick", label: kickLabel },
+  ];
+
+  pairs.forEach(({ platform, label }) => {
+    if (!label) {
       return;
     }
     const connected = Boolean(platformConnectionState[platform]);
-    indicator.classList.toggle("is-connected", connected);
-    indicator.classList.remove("is-error");
-    const label = connected
-      ? `${formatPlatformName(platform)} chat connected`
+    const channelCount = connectedChannelSets[platform]
+      ? connectedChannelSets[platform].size
+      : 0;
+    const labelText = connected
+      ? channelCount > 1
+        ? `${formatPlatformName(platform)} chat connected (${channelCount} channels)`
+        : `${formatPlatformName(platform)} chat connected`
       : `${formatPlatformName(platform)} chat disconnected`;
-    indicator.setAttribute("aria-label", label);
-    indicator.setAttribute("title", label);
+    label.setAttribute("aria-label", labelText);
+    label.setAttribute("title", labelText);
   });
+
+  renderChannelInputDecorations();
 }
 
 function updatePlatformConnectionState(payload) {
@@ -380,57 +627,86 @@ function updatePlatformConnectionState(payload) {
   }
   const type = typeof payload.type === "string" ? payload.type : "";
   const message = typeof payload.message === "string" ? payload.message : "";
+  const channelSlug = normalizeChannelSlug(platform, payload.channel || "");
   const normalizedMessage = message.toLowerCase();
-  let stateChanged = false;
-
-  if (!message && type !== "error") {
-    return;
-  }
-
   const indicatesDisconnect =
     normalizedMessage.includes("disconnected from") ||
     normalizedMessage.includes("stopped listening to");
+  const indicatesConnect = normalizedMessage.includes("connected to");
 
-  if (type === "status" && normalizedMessage.includes("connected to")) {
-    if (!platformConnectionState[platform]) {
+  if (!message && type !== "error" && !channelSlug) {
+    return;
+  }
+
+  const channelSet = connectedChannelSets[platform];
+  const everSet = everConnectedChannelSets[platform];
+  let stateChanged = false;
+
+  if (type === "status" && indicatesConnect) {
+    if (channelSlug) {
+      if (!channelSet.has(channelSlug)) {
+        channelSet.add(channelSlug);
+        stateChanged = true;
+      }
+      if (!everSet.has(channelSlug)) {
+        everSet.add(channelSlug);
+        platformEverConnected[platform] = true;
+        stateChanged = true;
+      }
+    } else if (!platformConnectionState[platform]) {
       platformConnectionState[platform] = true;
       stateChanged = true;
     }
-    if (!platformEverConnected[platform]) {
-      platformEverConnected[platform] = true;
-      stateChanged = true;
-    }
   } else if (type === "status" && indicatesDisconnect) {
-    if (platformConnectionState[platform]) {
-      platformConnectionState[platform] = false;
+    if (channelSlug && channelSet.has(channelSlug)) {
+      channelSet.delete(channelSlug);
+      stateChanged = true;
+    } else if (!channelSlug && platformConnectionState[platform]) {
       stateChanged = true;
     }
-  } else if (type === "error") {
-    if (platformConnectionState[platform]) {
-      platformConnectionState[platform] = false;
-      stateChanged = true;
-    }
+  } else if (type === "error" && channelSlug && channelSet.has(channelSlug)) {
+    channelSet.delete(channelSlug);
+    stateChanged = true;
+  }
+
+  const nextConnected = channelSet.size > 0;
+  if (platformConnectionState[platform] !== nextConnected) {
+    platformConnectionState[platform] = nextConnected;
+    stateChanged = true;
   }
 
   if (stateChanged) {
     updateMessageControls();
     updateConnectionIndicators();
   }
+  if (!connectionFinalized && platformConnectionState[platform]) {
+    finalizeConnection();
+  }
 }
 
 function announceDisconnectStatus() {
   const notices = [];
-  if (platformEverConnected.kick && currentChannels.kick) {
-    notices.push(`Disconnected from Kick chat for ${currentChannels.kick}`);
+  const kickEver = Array.from(everConnectedChannelSets.kick);
+  if (kickEver.length) {
+    const summary =
+      kickEver.length === 1
+        ? kickEver[0]
+        : `${kickEver.slice(0, 10).join(", ")}`;
+    notices.push(`Disconnected from Kick chat for ${summary}`);
   }
-  if (platformEverConnected.twitch && currentChannels.twitch) {
-    notices.push(`Disconnected from Twitch chat for ${currentChannels.twitch}`);
+  const twitchEver = Array.from(everConnectedChannelSets.twitch);
+  if (twitchEver.length) {
+    const summary =
+      twitchEver.length === 1
+        ? twitchEver[0]
+        : `${twitchEver.slice(0, 10).join(", ")}`;
+    notices.push(`Disconnected from Twitch chat for ${summary}`);
   }
   if (notices.length === 0) {
     notices.push("Disconnected.");
   }
   notices.forEach((notice) => setStatus(notice));
-  resetPlatformConnectionState();
+  resetPlatformConnectionState({ resetAttempts: true });
 }
 
 function setStatus(message, options = {}) {
@@ -503,30 +779,73 @@ function hasAccount(platform) {
 
 function buildPlatformOptions() {
   const options = [];
-  const twitchChannel = twitchInput.value.trim();
-  const twitchReady = Boolean(
-    twitchChannel && hasAccount("twitch") && platformConnectionState.twitch
-  );
-  if (twitchReady) {
-    options.push({ value: "twitch", label: `Twitch (${twitchChannel})` });
+  const twitchConnected = Array.from(connectedChannelSets.twitch || []);
+  const kickConnected = Array.from(connectedChannelSets.kick || []);
+  const twitchLinked = hasAccount("twitch");
+  const kickLinked = hasAccount("kick");
+
+  const addOption = (value, label) => {
+    options.push({ value, label });
+  };
+
+  if (
+    twitchLinked &&
+    kickLinked &&
+    twitchConnected.length &&
+    kickConnected.length
+  ) {
+    addOption(
+      "both:*",
+      twitchConnected.length + kickConnected.length > 2
+        ? "Twitch + Kick (All)"
+        : "Twitch + Kick (both)"
+    );
   }
-  const kickChannel = kickInput.value.trim();
-  const kickReady = Boolean(
-    kickChannel && hasAccount("kick") && platformConnectionState.kick
-  );
-  if (kickReady) {
-    options.push({ value: "kick", label: `Kick (${kickChannel})` });
+
+  if (twitchLinked && twitchConnected.length) {
+    if (twitchConnected.length > 1) {
+      addOption(
+        "twitch:*",
+        `Twitch (All ${twitchConnected.length})`
+      );
+    }
+    twitchConnected.forEach((channel) => {
+      addOption(`twitch:${channel}`, `Twitch (${channel})`);
+    });
   }
-  if (twitchReady && kickReady) {
-    options.push({ value: "both", label: "Twitch + Kick (both)" });
+
+  if (kickLinked && kickConnected.length) {
+    if (kickConnected.length > 1) {
+      addOption(
+        "kick:*",
+        `Kick (All ${kickConnected.length})`
+      );
+    }
+    kickConnected.forEach((channel) => {
+      addOption(`kick:${channel}`, `Kick (${channel})`);
+    });
   }
+
   if (replyTarget && replyTarget.platform) {
-    return options.filter((option) => option.value === replyTarget.platform);
+    const replyValue = platformOptionValue(
+      replyTarget.platform,
+      replyTarget.channel || "*"
+    );
+    const filtered = options.filter((option) => option.value === replyValue);
+    if (filtered.length) {
+      return filtered;
+    }
+    return options.filter((option) =>
+      option.value.startsWith(`${replyTarget.platform}:`)
+    );
   }
+
   return options;
 }
 
-function applySendButtonStyle(platform) {
+function applySendButtonStyle(selectionValue) {
+  const parsed = parsePlatformOptionValue(selectionValue);
+  const platform = parsed ? parsed.platform : normalizePlatformKey(selectionValue) || "";
   const buttonClass =
     platform === "twitch"
       ? "button--twitch"
@@ -700,7 +1019,8 @@ function setReplyTarget(target, element) {
     replyTargetElement.classList.remove("message--reply-target");
   }
 
-  replyTarget = target;
+  const selectionValue = platformOptionValue(target.platform, target.channel || "*");
+  replyTarget = { ...target, optionValue: selectionValue };
   replyTargetElement = element instanceof HTMLElement ? element : null;
   if (replyTargetElement) {
     replyTargetElement.classList.add("message--reply-target");
@@ -721,8 +1041,11 @@ function setReplyTarget(target, element) {
   }
 
   if (platformSelect && !platformSelect.disabled) {
-    platformSelect.value = target.platform;
-    applySendButtonStyle(target.platform);
+    if (selectionValue) {
+      platformSelect.value = selectionValue;
+      preferredSendPlatform = selectionValue;
+      applySendButtonStyle(selectionValue);
+    }
   }
 
   if (messageInput && !messageInput.disabled) {
@@ -740,6 +1063,7 @@ function startReplyFromElement(messageEl) {
     setStatus("This message cannot be replied to.");
     return;
   }
+  const channel = messageEl.dataset.channel || "";
   const username = messageEl.dataset.username || "";
   const messageText = messageEl.dataset.rawMessage || "";
   const userId = messageEl.dataset.userId || "";
@@ -758,6 +1082,7 @@ function startReplyFromElement(messageEl) {
   setReplyTarget(
     {
       platform,
+      channel,
       messageId,
       username,
       user: username,
@@ -837,9 +1162,10 @@ function updateMessageControls() {
     let nextValue = "";
     if (
       replyTarget &&
-      availableValues.includes(replyTarget.platform)
+      replyTarget.optionValue &&
+      availableValues.includes(replyTarget.optionValue)
     ) {
-      nextValue = replyTarget.platform;
+      nextValue = replyTarget.optionValue;
     } else if (preferredSendPlatform && availableValues.includes(preferredSendPlatform)) {
       nextValue = preferredSendPlatform;
     } else if (availableValues.length) {
@@ -871,9 +1197,13 @@ function updateMessageControls() {
       : "Link your account to send messages";
   } else if (replyTarget) {
     const replyName = normalizeUsername(replyTarget.username || replyTarget.user || "");
+    const channelLabel =
+      replyTarget.channel && typeof replyTarget.channel === "string" && replyTarget.channel
+        ? ` in #${replyTarget.channel}`
+        : "";
     messageInput.placeholder = replyName
-      ? `Reply to @${replyName}...`
-      : "Reply to this message...";
+      ? `Reply to @${replyName}${channelLabel}...`
+      : `Reply to this message${channelLabel}...`;
   } else {
     messageInput.placeholder = "Type your message here...";
   }
@@ -1169,7 +1499,11 @@ function showModerationMenu(anchor, metadata) {
       : metadata.platform === "kick"
         ? "Kick"
         : metadata.platform || "Unknown";
-  title.textContent = `${platformLabel} • ${metadata.username}`;
+  const channelLabel =
+    metadata.channel && typeof metadata.channel === "string" && metadata.channel
+      ? `#${metadata.channel}`
+      : platformLabel;
+  title.textContent = `${channelLabel} • ${metadata.username}`;
   header.appendChild(title);
 
   const closeButton = document.createElement("button");
@@ -1288,8 +1622,14 @@ async function performModeration(action, duration) {
 
   const { platform, username, userId } = targetMeta;
   const normalizedPlatform = platform === "twitch" ? "twitch" : "kick";
-  const channelFallback = normalizedPlatform === "twitch" ? twitchInput.value.trim() : kickInput.value.trim();
-  const channel = currentChannels[normalizedPlatform] || channelFallback;
+  const configured = currentChannels[normalizedPlatform] || [];
+  const normalizedChannel =
+    typeof targetMeta.channel === "string"
+      ? normalizeChannelSlug(normalizedPlatform, targetMeta.channel)
+      : "";
+  const channel =
+    normalizedChannel ||
+    (Array.isArray(configured) && configured.length ? configured[0] : "");
   const normalizedPlatformLabel = formatPlatformName(normalizedPlatform);
 
   if (!channel) {
@@ -1371,10 +1711,11 @@ function openModerationMenuForElement(usernameEl) {
   const platform = usernameEl.dataset.platform;
   const username = usernameEl.dataset.username || usernameEl.textContent || "";
   const userId = usernameEl.dataset.userId || "";
+  const channel = usernameEl.dataset.channel || "";
   if (!platform || !username) {
     return;
   }
-  showModerationMenu(usernameEl, { platform, username, userId });
+  showModerationMenu(usernameEl, { platform, username, userId, channel });
 }
 
 chatEl.addEventListener("click", (event) => {
@@ -1494,6 +1835,11 @@ function createMessageElement(payload) {
   } else {
     delete wrapper.dataset.platform;
   }
+  if (data.channel) {
+    wrapper.dataset.channel = String(data.channel);
+  } else {
+    delete wrapper.dataset.channel;
+  }
   if (data.id != null) {
     wrapper.dataset.messageId = String(data.id);
   } else {
@@ -1580,6 +1926,22 @@ function createMessageElement(payload) {
     const badgeRow = document.createElement("span");
     badgeRow.classList.add("badges");
 
+    if (
+      data.channel_profile_image &&
+      typeof data.channel_profile_image === "string" &&
+      data.channel_profile_image.trim()
+    ) {
+      const avatar = document.createElement("img");
+      avatar.classList.add("badge", "channel-avatar");
+      avatar.src = data.channel_profile_image;
+      avatar.alt = data.channel_display_name || data.channel || "channel avatar";
+      avatar.title = avatar.alt;
+      avatar.loading = "lazy";
+      avatar.decoding = "async";
+      avatar.referrerPolicy = "no-referrer";
+      badgeRow.appendChild(avatar);
+    }
+
     if (data.platform === "twitch" || data.platform === "kick") {
       const platformBadge = document.createElement("span");
       platformBadge.classList.add("platform-icon", data.platform);
@@ -1615,6 +1977,11 @@ function createMessageElement(payload) {
     username.dataset.username = data.user || "";
     if (data.user_id) {
       username.dataset.userId = data.user_id;
+    }
+    if (data.channel) {
+      username.dataset.channel = data.channel;
+    } else {
+      delete username.dataset.channel;
     }
     username.setAttribute("role", "button");
     username.setAttribute("tabindex", "0");
@@ -1734,7 +2101,10 @@ function addMessageToDom(payload) {
     replyTarget &&
     element.dataset &&
     element.dataset.messageId === replyTarget.messageId &&
-    element.dataset.platform === replyTarget.platform
+    element.dataset.platform === replyTarget.platform &&
+    (replyTarget.channel
+      ? element.dataset.channel === replyTarget.channel
+      : true)
   ) {
     if (replyTargetElement && replyTargetElement !== element) {
       replyTargetElement.classList.remove("message--reply-target");
@@ -1976,41 +2346,50 @@ disconnectBtn.disabled = true;
 
 function connect(options = {}) {
   const preserveMessages = Boolean(options && options.preserveMessages);
-  const twitch = twitchInput.value.trim();
-  const kick = kickInput.value.trim();
+  const twitchChannels = parseChannelList(twitchInput.value || "", "twitch");
+  const kickChannels = parseChannelList(kickInput.value || "", "kick");
 
-  if (!twitch && !kick) {
+  if (!twitchChannels.length && !kickChannels.length) {
     setStatus("Enter at least one streamer to start listening.");
     return;
   }
 
+  twitchInput.value = formatChannelList(twitchChannels);
+  kickInput.value = formatChannelList(kickChannels);
+  setAttemptedChannels("twitch", twitchChannels);
+  setAttemptedChannels("kick", kickChannels);
+  renderChannelInputDecorations();
+
   hideModerationMenu();
-  const previousTwitch = currentChannels.twitch || "";
-  const previousKick = currentChannels.kick || "";
-  const channelsChanged = twitch !== previousTwitch || kick !== previousKick;
+  const previousTwitch = currentChannels.twitch || [];
+  const previousKick = currentChannels.kick || [];
+  const channelsChanged =
+    !channelArraysEqual(twitchChannels, previousTwitch) ||
+    !channelArraysEqual(kickChannels, previousKick);
 
   if (!preserveMessages && channelsChanged) {
     clearChat({ resetPersisted: true });
   }
   if (!preserveMessages && !channelsChanged && persistenceAvailable) {
     // Ensure persisted state reflects current values without dropping messages
-    persistedState.channels.twitch = twitch;
-    persistedState.channels.kick = kick;
+    persistedState.channels.twitch = [...twitchChannels];
+    persistedState.channels.kick = [...kickChannels];
     savePersistedState();
   }
+  connectionFinalized = false;
   setButtonBusy(connectBtn, true, "Connecting…");
   setButtonBusy(disconnectBtn, false);
   disconnectBtn.disabled = true;
 
-  currentChannels.twitch = twitch;
-  currentChannels.kick = kick;
+  currentChannels.twitch = [...twitchChannels];
+  currentChannels.kick = [...kickChannels];
   if (persistenceAvailable) {
-    persistedState.channels.twitch = twitch;
-    persistedState.channels.kick = kick;
+    persistedState.channels.twitch = [...twitchChannels];
+    persistedState.channels.kick = [...kickChannels];
     savePersistedState();
   }
 
-  resetPlatformConnectionState({ preserveEverConnected: true });
+  resetPlatformConnectionState();
 
   if (socket) {
     socket.close();
@@ -2026,21 +2405,19 @@ function connect(options = {}) {
     }
     setStatus("Connection established.", { silent: true });
     enableMessageInput();
-    setButtonBusy(connectBtn, false);
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = false;
-    markConnected();
     if (persistenceAvailable) {
       persistedState.connected = true;
-      persistedState.channels.twitch = twitch;
-      persistedState.channels.kick = kick;
+      persistedState.channels.twitch = [...twitchChannels];
+      persistedState.channels.kick = [...kickChannels];
       savePersistedState();
     }
     activeSocket.send(
       JSON.stringify({
         action: "subscribe",
-        twitch,
-        kick,
+        twitch: twitchChannels,
+        kick: kickChannels,
       })
     );
   });
@@ -2136,6 +2513,8 @@ logoutBtn.addEventListener("click", async () => {
 
 twitchInput.addEventListener("input", updateMessageControls);
 kickInput.addEventListener("input", updateMessageControls);
+twitchInput.addEventListener("input", renderChannelInputDecorations);
+kickInput.addEventListener("input", renderChannelInputDecorations);
 
 const fallbackPalette = [
   "#ff75e6",
@@ -2249,14 +2628,17 @@ function restoreFromPersistedState() {
     return;
   }
   const channels = persistedState.channels || {};
+  const twitchList = parseChannelList(channels.twitch, "twitch");
+  const kickList = parseChannelList(channels.kick, "kick");
   if (twitchInput) {
-    twitchInput.value = channels.twitch || "";
+    twitchInput.value = formatChannelList(twitchList);
   }
   if (kickInput) {
-    kickInput.value = channels.kick || "";
+    kickInput.value = formatChannelList(kickList);
   }
-  currentChannels.twitch = channels.twitch || "";
-  currentChannels.kick = channels.kick || "";
+  currentChannels.twitch = [...twitchList];
+  currentChannels.kick = [...kickList];
+  renderChannelInputDecorations();
 
   if (persistedState.messages && persistedState.messages.length) {
     hydratingMessages = true;
@@ -2270,7 +2652,7 @@ function restoreFromPersistedState() {
 
   if (
     persistedState.connected &&
-    (channels.twitch || channels.kick) &&
+    (twitchList.length || kickList.length) &&
     (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING)
   ) {
     setTimeout(() => {
@@ -2303,10 +2685,10 @@ async function sendMessage() {
   if (sendingMessage) {
     return;
   }
-  const platform = platformSelect.value;
+  const selectionValue = platformSelect.value;
   const message = messageInput.value.trim();
 
-  if (!platform) {
+  if (!selectionValue) {
     setStatus("Select a platform to send messages.");
     return;
   }
@@ -2318,34 +2700,71 @@ async function sendMessage() {
     return;
   }
 
-  const formatPlatformLabel = (value) => {
-    if (value === "twitch") {
-      return "Twitch";
-    }
-    if (value === "kick") {
-      return "Kick";
-    }
-    return value;
-  };
-
-  const targets =
-    platform === "both"
-      ? [
-          { platform: "twitch", channel: twitchInput.value.trim() },
-          { platform: "kick", channel: kickInput.value.trim() },
-        ]
-      : [{ platform, channel: platform === "twitch" ? twitchInput.value.trim() : kickInput.value.trim() }];
-
-  if (platform === "both") {
-    const missing = targets.filter((target) => !target.channel).map((target) => target.platform);
-    if (missing.length) {
-      setStatus("Enter both Twitch and Kick channels before sending.");
-      return;
-    }
-  } else if (!targets[0].channel) {
-    setStatus(`Enter a ${platform} channel before sending.`);
+  const selection = parsePlatformOptionValue(selectionValue);
+  if (!selection) {
+    setStatus("Invalid platform selection.");
     return;
   }
+
+  preferredSendPlatform = selectionValue;
+
+  const formatTargetLabel = (target) => {
+    const platformLabel = formatPlatformName(target.platform);
+    return target.channel ? `${platformLabel} (#${target.channel})` : platformLabel;
+  };
+
+  const collectTargets = (platform, channelSpec) => {
+    const connected = Array.from(connectedChannelSets[platform] || []);
+    if (!connected.length) {
+      setStatus(`No ${formatPlatformName(platform)} channels are currently connected.`);
+      return null;
+    }
+    if (!channelSpec || channelSpec === "*") {
+      return connected.map((channel) => ({ platform, channel }));
+    }
+    const normalizedChannel = normalizeChannelSlug(platform, channelSpec);
+    if (!connected.includes(normalizedChannel)) {
+      setStatus(
+        `Channel #${normalizedChannel} is not connected on ${formatPlatformName(platform)}.`
+      );
+      return null;
+    }
+    return [{ platform, channel: normalizedChannel }];
+  };
+
+  let targets;
+  if (selection.platform === "both") {
+    const twitchTargets = collectTargets("twitch", "*");
+    if (!twitchTargets) {
+      return;
+    }
+    const kickTargets = collectTargets("kick", "*");
+    if (!kickTargets) {
+      return;
+    }
+    targets = [...twitchTargets, ...kickTargets];
+  } else {
+    const platformTargets = collectTargets(selection.platform, selection.channel);
+    if (!platformTargets) {
+      return;
+    }
+    targets = platformTargets;
+  }
+
+  if (!targets.length) {
+    setStatus("No connected channels available to send messages.");
+    return;
+  }
+
+  const seenTargets = new Set();
+  targets = targets.filter((target) => {
+    const key = `${target.platform}:${target.channel}`;
+    if (seenTargets.has(key)) {
+      return false;
+    }
+    seenTargets.add(key);
+    return true;
+  });
 
   const sendButtonWasDisabled = sendButton.disabled;
 
@@ -2362,6 +2781,7 @@ async function sendMessage() {
       replyTarget && replyTarget.messageId
         ? {
             platform: replyTarget.platform,
+            channel: replyTarget.channel || "",
             messageId: replyTarget.messageId,
             userId: replyTarget.userId || "",
             username: replyTarget.username || replyTarget.user || "",
@@ -2377,7 +2797,8 @@ async function sendMessage() {
         };
         if (
           activeReplyTarget &&
-          activeReplyTarget.platform === target.platform
+          activeReplyTarget.platform === target.platform &&
+          (!activeReplyTarget.channel || activeReplyTarget.channel === target.channel)
         ) {
           requestBody.reply_to = {
             message_id: activeReplyTarget.messageId,
@@ -2402,31 +2823,46 @@ async function sendMessage() {
                 : errorBody
               : errorBody;
           const detailMessage = extractApiErrorMessage(detailSource, fallbackDetail);
-          failures.push({ platform: target.platform, detail: detailMessage });
+          failures.push({
+            platform: target.platform,
+            channel: target.channel,
+            detail: detailMessage,
+          });
           console.error(
-            `Failed to send chat message via ${target.platform}: ${detailMessage}`
+            `Failed to send chat message via ${target.platform}#${target.channel}: ${detailMessage}`
           );
           continue;
         }
 
-        successes.push(target.platform);
+        successes.push(target);
       } catch (err) {
-        console.error(`Network error while sending via ${target.platform}`, err);
-        failures.push({ platform: target.platform, detail: "Network error" });
+        console.error(
+          `Network error while sending via ${target.platform}#${target.channel}`,
+          err
+        );
+        failures.push({
+          platform: target.platform,
+          channel: target.channel,
+          detail: "Network error",
+        });
       }
     }
 
     if (failures.length) {
       const failure = failures[0];
-      const failureLabel = formatPlatformLabel(failure.platform);
+      const failureLabel = formatTargetLabel(failure);
       if (successes.length) {
-        const successLabel = successes.map((value) => formatPlatformLabel(value)).join(" and ");
+        const successLabel = successes
+          .map((target) => formatTargetLabel(target))
+          .join(" and ");
         setStatus(
           `Message sent via ${successLabel}, but failed via ${failureLabel}: ${failure.detail}`,
           { type: "error" },
         );
       } else {
-        setStatus(`Failed to send via ${failureLabel}: ${failure.detail}`, { type: "error" });
+        setStatus(`Failed to send via ${failureLabel}: ${failure.detail}`, {
+          type: "error",
+        });
       }
       return;
     }
