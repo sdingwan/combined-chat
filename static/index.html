@@ -21,41 +21,49 @@
       </div>
       <form id="channelForm">
         <label class="channel-input">
-          <span class="channel-input__label">Twitch Streamer</span>
+          <span
+            id="twitchLabel"
+            class="channel-input__label"
+            role="status"
+            aria-live="polite"
+            aria-label="Twitch chat disconnected"
+            title="Twitch chat disconnected"
+          >Twitch Streamer</span>
           <div class="channel-input__control">
+            <div
+              id="twitchInputDecor"
+              class="channel-input__overlay"
+              aria-hidden="true"
+            ></div>
             <input
               id="twitchInput"
               type="text"
               placeholder="e.g. summit1g, asmongold (max 10)"
               autocomplete="off"
             />
-            <span
-              id="twitchStatusIndicator"
-              class="connection-indicator"
-              role="status"
-              aria-live="polite"
-              aria-label="Twitch chat disconnected"
-              title="Twitch chat disconnected"
-            ></span>
           </div>
         </label>
         <label class="channel-input">
-          <span class="channel-input__label">Kick Streamer</span>
+          <span
+            id="kickLabel"
+            class="channel-input__label"
+            role="status"
+            aria-live="polite"
+            aria-label="Kick chat disconnected"
+            title="Kick chat disconnected"
+          >Kick Streamer</span>
           <div class="channel-input__control">
+            <div
+              id="kickInputDecor"
+              class="channel-input__overlay"
+              aria-hidden="true"
+            ></div>
             <input
               id="kickInput"
               type="text"
               placeholder="e.g. xqc, adinross (max 10)"
               autocomplete="off"
             />
-            <span
-              id="kickStatusIndicator"
-              class="connection-indicator"
-              role="status"
-              aria-live="polite"
-              aria-label="Kick chat disconnected"
-              title="Kick chat disconnected"
-            ></span>
           </div>
         </label>
         <div class="form-actions">

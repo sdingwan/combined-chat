@@ -7,8 +7,10 @@ const disconnectBtn = document.getElementById("disconnectBtn");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
 const platformSelect = document.getElementById("platformSelect");
-const twitchStatusIndicator = document.getElementById("twitchStatusIndicator");
-const kickStatusIndicator = document.getElementById("kickStatusIndicator");
+const twitchLabel = document.getElementById("twitchLabel");
+const kickLabel = document.getElementById("kickLabel");
+const twitchInputOverlay = document.getElementById("twitchInputDecor");
+const kickInputOverlay = document.getElementById("kickInputDecor");
 const authStatusEl = document.getElementById("authStatus");
 const twitchLoginBtn = document.getElementById("twitchLoginBtn");
 const kickLoginBtn = document.getElementById("kickLoginBtn");
@@ -29,6 +31,7 @@ let chatInputOffset = 0;
 let socket = null;
 let sendingMessage = false;
 let connectionReady = false;
+let connectionFinalized = false;
 let authState = { authenticated: false, accounts: [], user: null };
 const maxMessages = 50;
 const scrollLockEpsilon = 4;
@@ -48,6 +51,11 @@ const everConnectedChannelSets = {
   twitch: new Set(),
   kick: new Set(),
 };
+const attemptedChannelSets = {
+  twitch: new Set(),
+  kick: new Set(),
+};
+const platformAttempted = { twitch: false, kick: false };
 let replyTarget = null;
 let replyTargetElement = null;
 let preferredSendPlatform = "";
@@ -418,15 +426,25 @@ function markConnected() {
   connectBtn.textContent = "Connected";
   connectBtn.classList.add("is-active");
   connectBtn.disabled = true;
+  connectionFinalized = true;
 }
 
 function resetConnectState() {
   if (!connectBtn) {
     return;
   }
+  connectionFinalized = false;
   connectBtn.classList.remove("is-active");
   connectBtn.textContent = "Connect";
   connectBtn.disabled = false;
+}
+
+function finalizeConnection() {
+  if (!connectBtn || connectionFinalized) {
+    return;
+  }
+  setButtonBusy(connectBtn, false);
+  markConnected();
 }
 
 function normalizePlatformKey(value) {
@@ -438,6 +456,7 @@ function resetPlatformConnectionState(options = {}) {
   const preserveEverConnected = Boolean(
     options && options.preserveEverConnected
   );
+  const resetAttempts = Boolean(options && options.resetAttempts);
   let changed = false;
   Object.keys(platformConnectionState).forEach((key) => {
     const activeSet = connectedChannelSets[key];
@@ -459,6 +478,17 @@ function resetPlatformConnectionState(options = {}) {
     } else if (everSet && everSet.size) {
       platformEverConnected[key] = true;
     }
+    if (resetAttempts) {
+      const attemptedSet = attemptedChannelSets[key];
+      if (attemptedSet && attemptedSet.size) {
+        attemptedSet.clear();
+        changed = true;
+      }
+      if (platformAttempted[key]) {
+        platformAttempted[key] = false;
+        changed = true;
+      }
+    }
   });
   if (changed) {
     updateMessageControls();
@@ -466,30 +496,125 @@ function resetPlatformConnectionState(options = {}) {
   }
 }
 
-function updateConnectionIndicators() {
+function setAttemptedChannels(platform, channels) {
+  const key = normalizePlatformKey(platform);
+  if (!key) {
+    return;
+  }
+  const attemptedSet = attemptedChannelSets[key];
+  if (!attemptedSet) {
+    return;
+  }
+  attemptedSet.clear();
+  if (Array.isArray(channels)) {
+    channels.forEach((channel) => {
+      if (channel) {
+        attemptedSet.add(channel);
+      }
+    });
+  }
+  if (channels && channels.length) {
+    platformAttempted[key] = true;
+  }
+}
+
+function renderChannelInputDecorations() {
   const pairs = [
-    { platform: "twitch", indicator: twitchStatusIndicator },
-    { platform: "kick", indicator: kickStatusIndicator },
+    {
+      platform: "twitch",
+      input: twitchInput,
+      overlay: twitchInputOverlay,
+    },
+    {
+      platform: "kick",
+      input: kickInput,
+      overlay: kickInputOverlay,
+    },
   ];
 
-  pairs.forEach(({ platform, indicator }) => {
-    if (!indicator) {
+  pairs.forEach(({ platform, input, overlay }) => {
+    if (!input || !overlay) {
+      return;
+    }
+    const control = input.parentElement;
+    if (!control) {
+      return;
+    }
+    const rawValue = input.value || "";
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+      control.classList.remove("has-decoration");
+      overlay.textContent = "";
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    const connectedSet = connectedChannelSets[platform] || new Set();
+    const attemptedSet = attemptedChannelSets[platform] || new Set();
+    const attempted = Boolean(platformAttempted[platform]);
+    const segments = rawValue.split(/(,\s*)/);
+    let hasDecoration = false;
+
+    segments.forEach((segment) => {
+      if (!segment) {
+        return;
+      }
+      if (/,/.test(segment)) {
+        const separator = document.createElement("span");
+        separator.className = "channel-input__separator";
+        separator.textContent = segment;
+        fragment.appendChild(separator);
+        return;
+      }
+      const token = document.createElement("span");
+      token.className = "channel-input__token";
+      token.textContent = segment;
+      const slug = normalizeChannelSlug(platform, segment);
+      const isValid = Boolean(slug);
+      const isConnected = isValid && connectedSet.has(slug);
+      if (isConnected) {
+        token.classList.add("is-connected");
+        hasDecoration = true;
+      } else if (isValid && attempted && attemptedSet.has(slug)) {
+        token.classList.add("is-disconnected");
+        hasDecoration = true;
+      }
+      fragment.appendChild(token);
+    });
+    if (hasDecoration) {
+      overlay.replaceChildren(fragment);
+      control.classList.add("has-decoration");
+    } else {
+      control.classList.remove("has-decoration");
+      overlay.innerHTML = "";
+    }
+  });
+}
+
+function updateConnectionIndicators() {
+  const pairs = [
+    { platform: "twitch", label: twitchLabel },
+    { platform: "kick", label: kickLabel },
+  ];
+
+  pairs.forEach(({ platform, label }) => {
+    if (!label) {
       return;
     }
     const connected = Boolean(platformConnectionState[platform]);
     const channelCount = connectedChannelSets[platform]
       ? connectedChannelSets[platform].size
       : 0;
-    indicator.classList.toggle("is-connected", connected);
-    indicator.classList.remove("is-error");
-    const label = connected
+    const labelText = connected
       ? channelCount > 1
         ? `${formatPlatformName(platform)} chat connected (${channelCount} channels)`
         : `${formatPlatformName(platform)} chat connected`
       : `${formatPlatformName(platform)} chat disconnected`;
-    indicator.setAttribute("aria-label", label);
-    indicator.setAttribute("title", label);
+    label.setAttribute("aria-label", labelText);
+    label.setAttribute("title", labelText);
   });
+
+  renderChannelInputDecorations();
 }
 
 function updatePlatformConnectionState(payload) {
@@ -554,6 +679,9 @@ function updatePlatformConnectionState(payload) {
     updateMessageControls();
     updateConnectionIndicators();
   }
+  if (!connectionFinalized && platformConnectionState[platform]) {
+    finalizeConnection();
+  }
 }
 
 function announceDisconnectStatus() {
@@ -578,7 +706,7 @@ function announceDisconnectStatus() {
     notices.push("Disconnected.");
   }
   notices.forEach((notice) => setStatus(notice));
-  resetPlatformConnectionState();
+  resetPlatformConnectionState({ resetAttempts: true });
 }
 
 function setStatus(message, options = {}) {
@@ -2228,6 +2356,9 @@ function connect(options = {}) {
 
   twitchInput.value = formatChannelList(twitchChannels);
   kickInput.value = formatChannelList(kickChannels);
+  setAttemptedChannels("twitch", twitchChannels);
+  setAttemptedChannels("kick", kickChannels);
+  renderChannelInputDecorations();
 
   hideModerationMenu();
   const previousTwitch = currentChannels.twitch || [];
@@ -2245,6 +2376,7 @@ function connect(options = {}) {
     persistedState.channels.kick = [...kickChannels];
     savePersistedState();
   }
+  connectionFinalized = false;
   setButtonBusy(connectBtn, true, "Connecting…");
   setButtonBusy(disconnectBtn, false);
   disconnectBtn.disabled = true;
@@ -2273,10 +2405,8 @@ function connect(options = {}) {
     }
     setStatus("Connection established.", { silent: true });
     enableMessageInput();
-    setButtonBusy(connectBtn, false);
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = false;
-    markConnected();
     if (persistenceAvailable) {
       persistedState.connected = true;
       persistedState.channels.twitch = [...twitchChannels];
@@ -2383,6 +2513,8 @@ logoutBtn.addEventListener("click", async () => {
 
 twitchInput.addEventListener("input", updateMessageControls);
 kickInput.addEventListener("input", updateMessageControls);
+twitchInput.addEventListener("input", renderChannelInputDecorations);
+kickInput.addEventListener("input", renderChannelInputDecorations);
 
 const fallbackPalette = [
   "#ff75e6",
@@ -2506,6 +2638,7 @@ function restoreFromPersistedState() {
   }
   currentChannels.twitch = [...twitchList];
   currentChannels.kick = [...kickList];
+  renderChannelInputDecorations();
 
   if (persistedState.messages && persistedState.messages.length) {
     hydratingMessages = true;
