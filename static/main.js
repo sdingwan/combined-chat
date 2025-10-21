@@ -61,7 +61,7 @@ const platformAttempted = { twitch: false, kick: false };
 let replyTarget = null;
 let replyTargetElement = null;
 let preferredSendPlatform = "";
-let chatFontScale = 1;
+let chatFontScale = 1.2;
 
 const storageKey = "combinedChatState";
 
@@ -312,7 +312,7 @@ if (fullscreenToggle && chatArea) {
   updateFullscreenState();
 }
 if (chatArea && (fontSizeIncrease || fontSizeDecrease)) {
-  const fontScaleBounds = { min: 0.75, max: 1.3, step: 0.1 };
+  const fontScaleBounds = { min: 0.85, max: 2.5, step: 0.1 };
   const applyChatFontScale = () => {
     chatArea.style.setProperty("--chat-font-scale", chatFontScale.toFixed(2));
     if (fontSizeIncrease) {

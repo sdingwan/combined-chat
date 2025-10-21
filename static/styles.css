@@ -412,7 +412,7 @@ button.is-busy.button--connect::after {
 }
 
 .chat-area {
-  --chat-font-scale: 1;
+  --chat-font-scale: 1.2;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -527,7 +527,7 @@ button.is-busy.button--connect::after {
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0.0px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
@@ -623,7 +623,7 @@ button.is-busy.button--connect::after {
   gap: 8px;
   font-size: calc(0.95rem * var(--chat-font-scale, 1));
   line-height: 1.4;
-  padding: 6px 8px;
+  padding: 4.8px 6.4px;
   word-break: break-word;
   border-radius: 6px;
   background: transparent;
