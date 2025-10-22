@@ -64,9 +64,14 @@ let replyTargetElement = null;
 let preferredSendPlatform = "";
 let chatFontScale = 1.2;
 const maxOutgoingMessageLength = 500;
+const autoReconnectBaseDelay = 1500;
+const autoReconnectMaxDelay = 30000;
 
 const storageKey = "combinedChatState";
 let lengthLimitWarningActive = false;
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+let userInitiatedDisconnect = false;
 
 if (messageInput) {
   messageInput.addEventListener("input", () => {
@@ -707,6 +712,14 @@ function updatePlatformConnectionState(payload) {
   }
   if (!connectionFinalized && platformConnectionState[platform]) {
     finalizeConnection();
+  }
+  if (
+    !platformConnectionState[platform] &&
+    socket &&
+    socket.readyState === WebSocket.OPEN &&
+    hasDesiredChannels(platform)
+  ) {
+    scheduleReconnect();
   }
 }
 
@@ -2377,8 +2390,54 @@ function twitchEmoteUrl(id) {
 
 disconnectBtn.disabled = true;
 
+function clearReconnectSchedule() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function hasDesiredChannels(platform) {
+  const key = normalizePlatformKey(platform);
+  if (!key) {
+    return false;
+  }
+  const desired = currentChannels[key];
+  return Array.isArray(desired) && desired.length > 0;
+}
+
+function scheduleReconnect() {
+  if (userInitiatedDisconnect) {
+    return;
+  }
+  if (reconnectTimer) {
+    return;
+  }
+  const hasChannels = currentChannels.twitch.length || currentChannels.kick.length;
+  if (!hasChannels) {
+    return;
+  }
+  reconnectAttempts += 1;
+  const delay = Math.min(
+    autoReconnectMaxDelay,
+    autoReconnectBaseDelay * 2 ** Math.max(0, reconnectAttempts - 1),
+  );
+  const seconds = Math.max(1, Math.round(delay / 1000));
+  setStatus(`Attempting to reconnect in ${seconds}s…`);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect({ preserveMessages: true, autoReconnect: true });
+  }, delay);
+}
+
 function connect(options = {}) {
   const preserveMessages = Boolean(options && options.preserveMessages);
+  const autoReconnect = Boolean(options && options.autoReconnect);
+  if (!autoReconnect) {
+    reconnectAttempts = 0;
+  }
+  userInitiatedDisconnect = false;
+  clearReconnectSchedule();
   const twitchChannels = parseChannelList(twitchInput.value || "", "twitch");
   const kickChannels = parseChannelList(kickInput.value || "", "kick");
 
@@ -2436,6 +2495,9 @@ function connect(options = {}) {
     if (event.target !== activeSocket) {
       return;
     }
+    reconnectAttempts = 0;
+    clearReconnectSchedule();
+    userInitiatedDisconnect = false;
     setStatus("Connection established.", { silent: true });
     enableMessageInput();
     setButtonBusy(disconnectBtn, false);
@@ -2485,6 +2547,7 @@ function connect(options = {}) {
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = true;
     resetConnectState();
+    scheduleReconnect();
   });
 
   activeSocket.addEventListener("error", (event) => {
@@ -2503,6 +2566,7 @@ function connect(options = {}) {
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = true;
     resetConnectState();
+    scheduleReconnect();
   });
 }
 
@@ -2638,6 +2702,9 @@ function normalizeColor(value) {
 }
 
 disconnectBtn.addEventListener("click", () => {
+  userInitiatedDisconnect = true;
+  reconnectAttempts = 0;
+  clearReconnectSchedule();
   setButtonBusy(disconnectBtn, true, "Disconnecting…");
   const closingSocket = socket;
   if (closingSocket) {
