@@ -1148,23 +1148,6 @@ button.is-busy.button--connect::after {
   cursor: not-allowed;
 }
 
-#platformSelect option {
-  background: #0f111a;
-  color: rgba(226, 232, 240, 0.94);
-}
-
-#platformSelect option:checked,
-#platformSelect option:hover,
-#platformSelect option:focus {
-  background: #1f2937;
-  color: #f8fafc;
-}
-
-#platformSelect option:disabled {
-  color: rgba(148, 163, 184, 0.45);
-  background: #0f111a;
-}
-
 #sendButton {
   padding: 12px 20px;
   white-space: nowrap;
