@@ -1073,8 +1073,8 @@ button.is-busy.button--connect::after {
   color: #efeff1;
   font-size: 0.95rem;
   outline: none;
-  flex: 1;
-  min-width: 160px;
+  flex: 1 1 160px;
+  min-width: 0;
 }
 
 #messageInput:focus {
@@ -1095,8 +1095,8 @@ button.is-busy.button--connect::after {
 .message-input-field {
   display: flex;
   align-items: stretch;
-  flex: 1;
-  min-width: 240px;
+  flex: 1 1 240px;
+  min-width: 0;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(15, 23, 42, 0.8);
@@ -1146,6 +1146,23 @@ button.is-busy.button--connect::after {
 
 #platformSelect:disabled {
   cursor: not-allowed;
+}
+
+#platformSelect option {
+  background: #0f111a;
+  color: rgba(226, 232, 240, 0.94);
+}
+
+#platformSelect option:checked,
+#platformSelect option:hover,
+#platformSelect option:focus {
+  background: #1f2937;
+  color: #f8fafc;
+}
+
+#platformSelect option:disabled {
+  color: rgba(148, 163, 184, 0.45);
+  background: #0f111a;
 }
 
 #sendButton {
