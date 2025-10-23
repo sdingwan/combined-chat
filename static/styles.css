@@ -1127,8 +1127,8 @@ button.is-busy.button--connect::after {
   padding: 10px 36px 10px 12px;
   border: none;
   border-right: 1px solid rgba(148, 163, 184, 0.2);
-  background: transparent;
-  color: inherit;
+  background-color: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
   font-size: 0.95rem;
   appearance: none;
   -webkit-appearance: none;
@@ -1146,6 +1146,17 @@ button.is-busy.button--connect::after {
 
 #platformSelect:disabled {
   cursor: not-allowed;
+  color: rgba(148, 163, 184, 0.55);
+  background-color: rgba(15, 23, 42, 0.6);
+}
+
+#platformSelect option {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
+#platformSelect option:disabled {
+  color: rgba(148, 163, 184, 0.55);
 }
 
 #sendButton {
