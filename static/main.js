@@ -94,6 +94,7 @@ if (messageInput) {
 function createDefaultPersistedState() {
   return {
     connected: false,
+    shouldReconnect: false,
     channels: { twitch: [], kick: [] },
     messages: [],
   };
@@ -245,6 +246,11 @@ function loadPersistedState() {
     }
     const nextState = createDefaultPersistedState();
     nextState.connected = Boolean(data.connected);
+    if (typeof data.shouldReconnect === "boolean") {
+      nextState.shouldReconnect = data.shouldReconnect;
+    } else {
+      nextState.shouldReconnect = nextState.connected;
+    }
     if (data.channels && typeof data.channels === "object") {
       nextState.channels.twitch = parseChannelList(data.channels.twitch, "twitch");
       nextState.channels.kick = parseChannelList(data.channels.kick, "kick");
@@ -2504,6 +2510,7 @@ function connect(options = {}) {
     disconnectBtn.disabled = false;
     if (persistenceAvailable) {
       persistedState.connected = true;
+      persistedState.shouldReconnect = true;
       persistedState.channels.twitch = [...twitchChannels];
       persistedState.channels.kick = [...kickChannels];
       savePersistedState();
@@ -2538,6 +2545,7 @@ function connect(options = {}) {
     }
     if (persistenceAvailable) {
       persistedState.connected = false;
+      persistedState.shouldReconnect = !userInitiatedDisconnect;
       savePersistedState();
     }
     announceDisconnectStatus();
@@ -2559,6 +2567,7 @@ function connect(options = {}) {
     }
     if (persistenceAvailable) {
       persistedState.connected = false;
+      persistedState.shouldReconnect = !userInitiatedDisconnect;
       savePersistedState();
     }
     setStatus("WebSocket error encountered.", { type: "error" });
@@ -2718,6 +2727,7 @@ disconnectBtn.addEventListener("click", () => {
     resetConnectState();
     if (persistenceAvailable) {
       persistedState.connected = false;
+      persistedState.shouldReconnect = false;
       savePersistedState();
     }
   }
@@ -2750,8 +2760,13 @@ function restoreFromPersistedState() {
     updatePauseBanner();
   }
 
+  const wantsReconnect =
+    typeof persistedState.shouldReconnect === "boolean"
+      ? persistedState.shouldReconnect
+      : Boolean(persistedState.connected);
+
   if (
-    persistedState.connected &&
+    wantsReconnect &&
     (twitchList.length || kickList.length) &&
     (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING)
   ) {
