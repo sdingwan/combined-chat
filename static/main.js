@@ -283,12 +283,18 @@ function recordMessageForPersistence(payload) {
   if (!persistenceAvailable) {
     return;
   }
+  if (payload && payload.persist === false) {
+    return;
+  }
   let clone;
   try {
     clone = JSON.parse(JSON.stringify(payload));
   } catch (err) {
     console.warn("Failed to store chat message", err);
     return;
+  }
+  if (clone && typeof clone === "object" && "persist" in clone) {
+    delete clone.persist;
   }
   persistedState.messages.push(clone);
   if (persistedState.messages.length > maxMessages) {
@@ -769,7 +775,8 @@ function setStatus(message, options = {}) {
     return;
   }
   const type = opts.type === "error" ? "error" : "status";
-  appendMessage({ type, message: text });
+  const persist = opts.persist !== false;
+  appendMessage({ type, message: text, persist });
 }
 
 function extractApiErrorMessage(detail, fallback = "Unknown error") {
@@ -2570,7 +2577,7 @@ function connect(options = {}) {
       persistedState.shouldReconnect = !userInitiatedDisconnect;
       savePersistedState();
     }
-    setStatus("WebSocket error encountered.", { type: "error" });
+    setStatus("WebSocket error encountered.", { type: "error", persist: false });
     setButtonBusy(connectBtn, false);
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = true;
