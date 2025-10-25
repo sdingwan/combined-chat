@@ -62,6 +62,7 @@ const platformAttempted = { twitch: false, kick: false };
 let replyTarget = null;
 let replyTargetElement = null;
 let preferredSendPlatform = "";
+let preferredSendPlatformBeforeReply = "";
 let chatFontScale = 1.2;
 const maxOutgoingMessageLength = 500;
 const autoReconnectBaseDelay = 1500;
@@ -1055,6 +1056,10 @@ function clearReplyTarget(options = {}) {
   if (replyTargetElement) {
     replyTargetElement.classList.remove("message--reply-target");
   }
+  if (preferredSendPlatformBeforeReply) {
+    preferredSendPlatform = preferredSendPlatformBeforeReply;
+  }
+  preferredSendPlatformBeforeReply = "";
   replyTarget = null;
   replyTargetElement = null;
   updateReplyPreview();
@@ -1069,6 +1074,14 @@ function setReplyTarget(target, element) {
   if (!target || !target.messageId) {
     setStatus("This message cannot be replied to.");
     return;
+  }
+
+  if (!replyTarget) {
+    if (platformSelect && !platformSelect.disabled && platformSelect.value) {
+      preferredSendPlatformBeforeReply = platformSelect.value;
+    } else {
+      preferredSendPlatformBeforeReply = preferredSendPlatform || "";
+    }
   }
 
   if (replyTargetElement && replyTargetElement !== element) {
