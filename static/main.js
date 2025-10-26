@@ -24,11 +24,14 @@ const replyPreviewSpacer = document.getElementById("replyPreviewSpacer");
 const replyPreviewLabel = document.getElementById("replyPreviewLabel");
 const replyPreviewMessage = document.getElementById("replyPreviewMessage");
 const replyCancelButton = document.getElementById("replyCancelButton");
+const replyPreviewIcon = document.querySelector(".reply-preview__icon");
 const fullscreenToggle = document.getElementById("fullscreenToggle");
 const chatArea = document.querySelector(".chat-area");
 const fontSizeIncrease = document.getElementById("fontSizeIncrease");
 const fontSizeDecrease = document.getElementById("fontSizeDecrease");
 const messageInputContainer = document.querySelector(".message-input-container");
+const replyArrowSvgMarkup =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 let chatInputOffset = 0;
 
 let socket = null;
@@ -73,6 +76,12 @@ let lengthLimitWarningActive = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 let userInitiatedDisconnect = false;
+let reconnectNoticeActive = false;
+let reconnectNoticeLastUpdate = 0;
+
+if (replyPreviewIcon) {
+  replyPreviewIcon.innerHTML = replyArrowSvgMarkup;
+}
 
 if (messageInput) {
   messageInput.addEventListener("input", () => {
@@ -315,7 +324,7 @@ const updateChatInputOffset = () => {
   if (!messageInputContainer) {
     return;
   }
-  const nextOffset = (messageInputContainer.offsetHeight || 0) + 12;
+  const nextOffset = (messageInputContainer.offsetHeight || 0) + 8;
   if (nextOffset !== chatInputOffset) {
     chatInputOffset = nextOffset;
     updatePauseBannerOffset();
@@ -736,28 +745,35 @@ function updatePlatformConnectionState(payload) {
   }
 }
 
-function announceDisconnectStatus() {
-  const notices = [];
-  const kickEver = Array.from(everConnectedChannelSets.kick);
-  if (kickEver.length) {
-    const summary =
-      kickEver.length === 1
-        ? kickEver[0]
-        : `${kickEver.slice(0, 10).join(", ")}`;
-    notices.push(`Disconnected from Kick chat for ${summary}`);
+function announceDisconnectStatus(options = {}) {
+  const opts = options || {};
+  const quietIfRetrying = Boolean(opts.quietIfRetrying);
+
+  const suppressNotices = quietIfRetrying && reconnectNoticeActive;
+  if (!suppressNotices) {
+    const notices = [];
+    const kickEver = Array.from(everConnectedChannelSets.kick);
+    if (kickEver.length) {
+      const summary =
+        kickEver.length === 1
+          ? kickEver[0]
+          : `${kickEver.slice(0, 10).join(", ")}`;
+      notices.push(`Disconnected from Kick chat for ${summary}`);
+    }
+    const twitchEver = Array.from(everConnectedChannelSets.twitch);
+    if (twitchEver.length) {
+      const summary =
+        twitchEver.length === 1
+          ? twitchEver[0]
+          : `${twitchEver.slice(0, 10).join(", ")}`;
+      notices.push(`Disconnected from Twitch chat for ${summary}`);
+    }
+    if (notices.length === 0) {
+      notices.push("Disconnected.");
+    }
+    notices.forEach((notice) => setStatus(notice));
   }
-  const twitchEver = Array.from(everConnectedChannelSets.twitch);
-  if (twitchEver.length) {
-    const summary =
-      twitchEver.length === 1
-        ? twitchEver[0]
-        : `${twitchEver.slice(0, 10).join(", ")}`;
-    notices.push(`Disconnected from Twitch chat for ${summary}`);
-  }
-  if (notices.length === 0) {
-    notices.push("Disconnected.");
-  }
-  notices.forEach((notice) => setStatus(notice));
+
   resetPlatformConnectionState({ resetAttempts: true });
 }
 
@@ -1346,14 +1362,21 @@ function updatePauseBannerOffset() {
   const baseOffset = chatInputOffset || 0;
   const fullscreenOffset = fullscreenActive ? 10 : 0;
   let bottom = 18 + baseOffset + fullscreenOffset;
-  if (replyPreview && !replyPreview.classList.contains("hidden")) {
-    const previewHeight = replyPreview.offsetHeight || 0;
-    const spacerHeight =
-      replyPreviewSpacer && !replyPreviewSpacer.classList.contains("hidden")
-        ? replyPreviewSpacer.offsetHeight || 0
-        : 0;
-    // Offset banner by preview height plus spacer and border separation.
-    bottom = Math.max(bottom, baseOffset + fullscreenOffset + previewHeight + spacerHeight + 24);
+  if (
+    replyPreview &&
+    !replyPreview.classList.contains("hidden") &&
+    chatArea &&
+    typeof replyPreview.getBoundingClientRect === "function"
+  ) {
+    const previewRect = replyPreview.getBoundingClientRect();
+    const chatRect = chatArea.getBoundingClientRect();
+    if (previewRect && chatRect) {
+      // Maintain a consistent visual gap between the reply bar and the pause banner.
+      const desiredGap = 18;
+      const previewTopDistance = chatRect.bottom - previewRect.top;
+      const requiredBottom = previewTopDistance + desiredGap;
+      bottom = Math.max(bottom, requiredBottom);
+    }
   }
   chatPauseBanner.style.bottom = `${bottom}px`;
 }
@@ -2095,7 +2118,7 @@ function createMessageElement(payload) {
         data.user ? `Reply to ${data.user}` : "Reply to message",
       );
       replyButtonEl.title = "Reply to message";
-      replyButtonEl.textContent = "⤴";
+      replyButtonEl.innerHTML = replyArrowSvgMarkup;
       wrapper.appendChild(replyButtonEl);
     }
   } else {
@@ -2432,6 +2455,26 @@ function hasDesiredChannels(platform) {
   return Array.isArray(desired) && desired.length > 0;
 }
 
+function reportReconnectStatus(delaySeconds) {
+  const now = Date.now();
+  if (!reconnectNoticeActive) {
+    setStatus("Connection lost. Trying to reconnect automatically…", {
+      persist: false,
+    });
+    reconnectNoticeActive = true;
+    reconnectNoticeLastUpdate = now;
+    return;
+  }
+  if (now - reconnectNoticeLastUpdate >= 15000) {
+    const suffix =
+      typeof delaySeconds === "number" && delaySeconds > 0
+        ? ` next attempt in ${delaySeconds}s.`
+        : "";
+    setStatus(`Still reconnecting…${suffix}`, { persist: false });
+    reconnectNoticeLastUpdate = now;
+  }
+}
+
 function scheduleReconnect() {
   if (userInitiatedDisconnect) {
     return;
@@ -2449,7 +2492,7 @@ function scheduleReconnect() {
     autoReconnectBaseDelay * 2 ** Math.max(0, reconnectAttempts - 1),
   );
   const seconds = Math.max(1, Math.round(delay / 1000));
-  setStatus(`Attempting to reconnect in ${seconds}s…`);
+  reportReconnectStatus(seconds);
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connect({ preserveMessages: true, autoReconnect: true });
@@ -2461,6 +2504,8 @@ function connect(options = {}) {
   const autoReconnect = Boolean(options && options.autoReconnect);
   if (!autoReconnect) {
     reconnectAttempts = 0;
+    reconnectNoticeActive = false;
+    reconnectNoticeLastUpdate = 0;
   }
   userInitiatedDisconnect = false;
   clearReconnectSchedule();
@@ -2526,6 +2571,11 @@ function connect(options = {}) {
     userInitiatedDisconnect = false;
     setStatus("Connection established.", { silent: true });
     enableMessageInput();
+    if (reconnectNoticeActive) {
+      setStatus("Reconnected to chat.", { persist: false });
+    }
+    reconnectNoticeActive = false;
+    reconnectNoticeLastUpdate = 0;
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = false;
     if (persistenceAvailable) {
@@ -2568,7 +2618,6 @@ function connect(options = {}) {
       persistedState.shouldReconnect = !userInitiatedDisconnect;
       savePersistedState();
     }
-    announceDisconnectStatus();
     disableMessageInput();
     hideModerationMenu();
     setButtonBusy(connectBtn, false);
@@ -2576,6 +2625,7 @@ function connect(options = {}) {
     disconnectBtn.disabled = true;
     resetConnectState();
     scheduleReconnect();
+    announceDisconnectStatus({ quietIfRetrying: !userInitiatedDisconnect });
   });
 
   activeSocket.addEventListener("error", (event) => {
@@ -2590,7 +2640,6 @@ function connect(options = {}) {
       persistedState.shouldReconnect = !userInitiatedDisconnect;
       savePersistedState();
     }
-    setStatus("WebSocket error encountered.", { type: "error", persist: false });
     setButtonBusy(connectBtn, false);
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = true;
@@ -2734,6 +2783,8 @@ disconnectBtn.addEventListener("click", () => {
   userInitiatedDisconnect = true;
   reconnectAttempts = 0;
   clearReconnectSchedule();
+  reconnectNoticeActive = false;
+  reconnectNoticeLastUpdate = 0;
   setButtonBusy(disconnectBtn, true, "Disconnecting…");
   const closingSocket = socket;
   if (closingSocket) {
