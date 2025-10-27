@@ -2980,24 +2980,25 @@ async function sendMessage() {
           }
         : null;
 
-    for (const target of targets) {
-      try {
-        const requestBody = {
-          platform: target.platform,
-          channel: target.channel,
-          message,
+    const sendRequestForTarget = async (target) => {
+      const requestBody = {
+        platform: target.platform,
+        channel: target.channel,
+        message,
+      };
+      if (
+        activeReplyTarget &&
+        activeReplyTarget.platform === target.platform &&
+        (!activeReplyTarget.channel || activeReplyTarget.channel === target.channel)
+      ) {
+        requestBody.reply_to = {
+          message_id: activeReplyTarget.messageId,
+          user_id: activeReplyTarget.userId || undefined,
+          username: normalizeUsername(activeReplyTarget.username || "") || undefined,
         };
-        if (
-          activeReplyTarget &&
-          activeReplyTarget.platform === target.platform &&
-          (!activeReplyTarget.channel || activeReplyTarget.channel === target.channel)
-        ) {
-          requestBody.reply_to = {
-            message_id: activeReplyTarget.messageId,
-            user_id: activeReplyTarget.userId || undefined,
-            username: normalizeUsername(activeReplyTarget.username || "") || undefined,
-          };
-        }
+      }
+
+      try {
         const response = await fetch("/chat/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3015,30 +3016,45 @@ async function sendMessage() {
                 : errorBody
               : errorBody;
           const detailMessage = extractApiErrorMessage(detailSource, fallbackDetail);
-          failures.push({
-            platform: target.platform,
-            channel: target.channel,
-            detail: detailMessage,
-          });
           console.error(
             `Failed to send chat message via ${target.platform}#${target.channel}: ${detailMessage}`
           );
-          continue;
+          throw { detail: detailMessage };
         }
 
-        successes.push(target);
+        return target;
       } catch (err) {
+        if (err && typeof err === "object" && Object.prototype.hasOwnProperty.call(err, "detail")) {
+          throw err;
+        }
         console.error(
           `Network error while sending via ${target.platform}#${target.channel}`,
           err
         );
-        failures.push({
-          platform: target.platform,
-          channel: target.channel,
-          detail: "Network error",
-        });
+        throw { detail: "Network error" };
       }
-    }
+    };
+
+    const results = await Promise.allSettled(
+      targets.map((target) => sendRequestForTarget(target))
+    );
+
+    results.forEach((result, index) => {
+      const target = targets[index];
+      if (result.status === "fulfilled") {
+        successes.push(result.value || target);
+        return;
+      }
+      const detail =
+        result.reason && typeof result.reason.detail === "string" && result.reason.detail
+          ? result.reason.detail
+          : "Unknown error";
+      failures.push({
+        platform: target.platform,
+        channel: target.channel,
+        detail,
+      });
+    });
 
     if (failures.length) {
       const failure = failures[0];
