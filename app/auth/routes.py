@@ -18,7 +18,7 @@ from app.auth.session import destroy_session, ensure_session, get_current_user
 from app.auth.state import consume_state, create_state
 from app.config import settings
 from app.db import get_session
-from app.models import KickUser, OAuthPlatform, TwitchUser
+from app.models import KickUser, OAuthPlatform, TwitchUser, YouTubeUser
 
 TWITCH_AUTHORIZE_URL = "https://id.twitch.tv/oauth2/authorize"
 TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
@@ -34,6 +34,11 @@ KICK_AUTHORIZE_URL = "https://id.kick.com/oauth/authorize"
 KICK_TOKEN_URL = "https://id.kick.com/oauth/token"
 KICK_USER_URL = "https://api.kick.com/public/v1/users"
 
+YOUTUBE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+YOUTUBE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+YOUTUBE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+YOUTUBE_CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels"
+
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +50,11 @@ def _scope_list(raw_scopes: Optional[str]) -> list[str]:
 
 
 KICK_SCOPES = _scope_list(settings.kick_scopes)
+YOUTUBE_SCOPES = [
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+    "https://www.googleapis.com/auth/userinfo.profile",
+]
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -170,6 +180,51 @@ async def _upsert_kick_user(
     return record
 
 
+async def _upsert_youtube_user(
+    db: AsyncSession,
+    *,
+    platform_user_id: str,
+    channel_id: Optional[str],
+    display_name: Optional[str],
+    profile_image_url: Optional[str],
+    access_token: str,
+    refresh_token: Optional[str],
+    scopes: list[str],
+    expires_in: Optional[int],
+) -> YouTubeUser:
+    record = await db.get(YouTubeUser, platform_user_id)
+    expires_at = (
+        _now() + timedelta(seconds=expires_in)
+        if expires_in is not None
+        else None
+    )
+
+    if record:
+        record.channel_id = channel_id or record.channel_id
+        record.display_name = display_name or record.display_name
+        record.profile_image_url = profile_image_url or record.profile_image_url
+        record.access_token = access_token
+        record.refresh_token = refresh_token or record.refresh_token
+        record.scope = _scope_string(scopes)
+        record.token_expires_at = expires_at
+    else:
+        record = YouTubeUser(
+            id=platform_user_id,
+            channel_id=channel_id,
+            display_name=display_name,
+            profile_image_url=profile_image_url,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            scope=_scope_string(scopes),
+            token_expires_at=expires_at,
+        )
+        db.add(record)
+
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
 @router.get("/status")
 async def auth_status(
     request: Request, db: AsyncSession = Depends(get_session)
@@ -206,6 +261,18 @@ async def auth_status(
                 "expires_at": expires_at.isoformat() if expires_at else None,
             }
         )
+    if context.youtube_user:
+        expires_at = context.youtube_user.token_expires_at
+        accounts.append(
+            {
+                "platform": OAuthPlatform.YOUTUBE.value,
+                "username": context.youtube_user.display_name or context.youtube_user.id,
+                "display_name": context.youtube_user.display_name,
+                "profile_image_url": context.youtube_user.profile_image_url,
+                "scopes": (context.youtube_user.scope or "").split(),
+                "expires_at": expires_at.isoformat() if expires_at else None,
+            }
+        )
 
     authenticated = bool(accounts)
     user_payload: Optional[dict[str, Any]]
@@ -215,14 +282,17 @@ async def auth_status(
         display_name = (
             (context.twitch_user.display_name if context.twitch_user and context.twitch_user.display_name else None)
             or (context.kick_user.display_name if context.kick_user and context.kick_user.display_name else None)
+            or (context.youtube_user.display_name if context.youtube_user and context.youtube_user.display_name else None)
             or (context.twitch_user.username if context.twitch_user else None)
             or (context.kick_user.username if context.kick_user else None)
+            or (context.youtube_user.id if context.youtube_user else None)
         )
         user_payload = {
             "id": context.session.id,
             "display_name": display_name,
             "twitch_user_id": context.twitch_user.id if context.twitch_user else None,
             "kick_user_id": context.kick_user.id if context.kick_user else None,
+            "youtube_user_id": context.youtube_user.id if context.youtube_user else None,
         }
 
     return JSONResponse(
@@ -298,6 +368,22 @@ async def oauth_login(
                 "code_challenge": code_challenge,
             })
         url = f"{KICK_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
+        return RedirectResponse(url)
+
+    if platform is OAuthPlatform.YOUTUBE:
+        if not settings.youtube_client_id or not settings.youtube_redirect_uri:
+            raise HTTPException(status_code=503, detail="YouTube OAuth not configured")
+        params = {
+            "client_id": settings.youtube_client_id,
+            "redirect_uri": settings.youtube_redirect_uri,
+            "response_type": "code",
+            "scope": " ".join(YOUTUBE_SCOPES),
+            "access_type": "offline",
+            "include_granted_scopes": "true",
+            "state": state_token,
+            "prompt": "consent",
+        }
+        url = f"{YOUTUBE_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
         return RedirectResponse(url)
 
     raise HTTPException(status_code=400, detail="Unsupported platform")
@@ -435,6 +521,71 @@ async def kick_callback(
     return response
 
 
+@router.get("/youtube/callback")
+async def youtube_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    db: AsyncSession = Depends(get_session),
+) -> RedirectResponse:
+    if error:
+        target = _safe_redirect_url("/?error=" + urllib.parse.quote(error))
+        return RedirectResponse(target)
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing OAuth parameters")
+
+    state_record = await consume_state(
+        db=db,
+        platform=OAuthPlatform.YOUTUBE,
+        state_token=state,
+    )
+    if not state_record:
+        raise HTTPException(status_code=400, detail="Invalid or expired state")
+
+    token_payload = await _exchange_youtube_code(code)
+    access_token = token_payload["access_token"]
+    refresh_token = token_payload.get("refresh_token")
+    raw_scope = token_payload.get("scope")
+    if isinstance(raw_scope, list):
+        scopes = raw_scope
+    elif isinstance(raw_scope, str):
+        scopes = raw_scope.split()
+    else:
+        scopes = []
+    expires_in = token_payload.get("expires_in")
+
+    profile = await _fetch_youtube_profile(access_token)
+    platform_user_id = profile.get("id") or profile.get("sub")
+    if not platform_user_id:
+        raise HTTPException(status_code=500, detail="YouTube profile response missing user id")
+    display_name = profile.get("name") or profile.get("given_name")
+    profile_image = profile.get("picture")
+
+    channel_id, channel_title, channel_thumbnail = await _fetch_youtube_channel(access_token)
+    if channel_title and not display_name:
+        display_name = channel_title
+    if channel_thumbnail and not profile_image:
+        profile_image = channel_thumbnail
+
+    youtube_user = await _upsert_youtube_user(
+        db,
+        platform_user_id=str(platform_user_id),
+        channel_id=channel_id,
+        display_name=display_name,
+        profile_image_url=profile_image,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        scopes=scopes,
+        expires_in=expires_in,
+    )
+
+    redirect_url = _safe_redirect_url(state_record.redirect_path)
+    response = RedirectResponse(redirect_url, status_code=303)
+    await ensure_session(db, request, response, youtube_user=youtube_user)
+    return response
+
+
 async def _exchange_twitch_code(code: str) -> dict[str, Any]:
     if not settings.twitch_client_id or not settings.twitch_client_secret or not settings.twitch_redirect_uri:
         raise HTTPException(status_code=503, detail="Twitch OAuth not configured")
@@ -517,6 +668,91 @@ async def _fetch_kick_user(access_token: str) -> dict[str, Any]:
     if not isinstance(profile, dict):
         raise HTTPException(status_code=500, detail="Kick profile response missing data")
     return profile
+
+
+async def _exchange_youtube_code(code: str) -> dict[str, Any]:
+    if (
+        not settings.youtube_client_id
+        or not settings.youtube_client_secret
+        or not settings.youtube_redirect_uri
+    ):
+        raise HTTPException(status_code=503, detail="YouTube OAuth not configured")
+
+    data = {
+        "code": code,
+        "client_id": settings.youtube_client_id,
+        "client_secret": settings.youtube_client_secret,
+        "redirect_uri": settings.youtube_redirect_uri,
+        "grant_type": "authorization_code",
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.post(YOUTUBE_TOKEN_URL, data=data)
+
+    if response.status_code != 200:
+        logger.error("YouTube token exchange failed: %s", response.text)
+        raise HTTPException(status_code=502, detail="Failed to exchange YouTube token")
+    return response.json()
+
+
+async def _fetch_youtube_profile(access_token: str) -> dict[str, Any]:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(YOUTUBE_USERINFO_URL, headers=headers)
+    if response.status_code != 200:
+        logger.error("YouTube userinfo request failed: %s", response.text)
+        raise HTTPException(status_code=502, detail="Failed to load YouTube profile")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail="YouTube profile response malformed")
+    return payload
+
+
+async def _fetch_youtube_channel(
+    access_token: str,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+    params = {
+        "part": "id,snippet",
+        "mine": "true",
+        "maxResults": 1,
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(YOUTUBE_CHANNELS_URL, params=params, headers=headers)
+
+    if response.status_code != 200:
+        logger.info("YouTube channel lookup failed (%s): %s", response.status_code, response.text)
+        return None, None, None
+
+    payload = response.json()
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or not items:
+        return None, None, None
+
+    entry = items[0] if isinstance(items[0], dict) else {}
+    channel_id = entry.get("id")
+    snippet = entry.get("snippet") if isinstance(entry, dict) else None
+    title = snippet.get("title") if isinstance(snippet, dict) else None
+    thumbnail_url = None
+    if isinstance(snippet, dict):
+        thumbnails = snippet.get("thumbnails")
+        if isinstance(thumbnails, dict):
+            for key in ("high", "medium", "default"):
+                candidate = thumbnails.get(key)
+                if isinstance(candidate, dict):
+                    url = candidate.get("url")
+                    if isinstance(url, str) and url:
+                        thumbnail_url = url
+                        break
+    return (
+        str(channel_id) if channel_id is not None else None,
+        title if isinstance(title, str) else None,
+        thumbnail_url,
+    )
 
 
 def _extract_kick_identity(

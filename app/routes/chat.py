@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.session import get_current_user
 from app.config import settings
 from app.db import get_session
-from app.models import KickUser, OAuthPlatform, TwitchUser
+from app.models import KickUser, OAuthPlatform, TwitchUser, YouTubeUser
+from app.chat_sources import youtube as youtube_sources
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -26,6 +27,11 @@ TWITCH_BAN_ENDPOINT = "https://api.twitch.tv/helix/moderation/bans"
 KICK_CHAT_ENDPOINT = "https://api.kick.com/public/v1/chat"
 KICK_CHANNELS_ENDPOINT = "https://api.kick.com/public/v1/channels"
 KICK_BAN_ENDPOINT = "https://api.kick.com/public/v1/moderation/bans"
+
+YOUTUBE_CHAT_ENDPOINT = youtube_sources.LIVE_CHAT_MESSAGES_ENDPOINT
+YOUTUBE_LIVE_BROADCASTS_ENDPOINT = youtube_sources.LIVE_BROADCASTS_ENDPOINT
+YOUTUBE_CHANNELS_ENDPOINT = youtube_sources.CHANNELS_ENDPOINT
+YOUTUBE_SEARCH_ENDPOINT = youtube_sources.SEARCH_ENDPOINT
 
 
 class ReplyContext(BaseModel):
@@ -96,6 +102,10 @@ def _normalise_kick_slug(value: str) -> str:
     return slug.replace("_", "-")
 
 
+def _normalise_youtube_slug(value: str) -> str:
+    return youtube_sources.normalise_channel_slug(value)
+
+
 def _normalise_target(value: str) -> str:
     handle = value.strip()
     if handle.startswith("@"):
@@ -144,6 +154,16 @@ async def send_chat_message(
             payload.channel,
             payload.message,
             payload.reply_to,
+        )
+    elif payload.platform is OAuthPlatform.YOUTUBE:
+        account = context.youtube_user
+        if not account:
+            raise HTTPException(status_code=400, detail="No linked account for platform")
+        await _send_youtube_message(
+            db,
+            account,
+            payload.channel,
+            payload.message,
         )
     else:
         raise HTTPException(status_code=400, detail="Unsupported platform")
@@ -203,6 +223,11 @@ async def moderate_chat_action(
             payload.action,
             duration,
             payload.target_id,
+        )
+    elif payload.platform is OAuthPlatform.YOUTUBE:
+        raise HTTPException(
+            status_code=501,
+            detail="YouTube moderation is not yet supported in Combined Chat",
         )
     else:
         raise HTTPException(status_code=400, detail="Unsupported platform")
@@ -565,6 +590,78 @@ async def _send_kick_message(
         raise HTTPException(status_code=502, detail={"kick_error": detail})
 
 
+async def _send_youtube_message(
+    db: AsyncSession,
+    account: YouTubeUser,
+    channel: str,
+    message: str,
+) -> None:
+    slug = _normalise_youtube_slug(channel)
+    if not slug:
+        raise HTTPException(status_code=400, detail="Channel is required")
+
+    access_token = await _ensure_youtube_token(db, account)
+    channel_id, _ = await _resolve_youtube_channel(access_token, slug)
+    if not channel_id:
+        raise HTTPException(status_code=404, detail="YouTube channel not found")
+
+    live_chat_id = await _resolve_youtube_live_chat_id(
+        access_token,
+        account,
+        channel_id,
+        channel_slug=slug,
+    )
+    if not live_chat_id:
+        raise HTTPException(status_code=404, detail="No active YouTube live chat found for that channel")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "snippet": {
+            "liveChatId": live_chat_id,
+            "type": "textMessageEvent",
+            "textMessageDetails": {"messageText": message},
+        }
+    }
+    params = {"part": "snippet"}
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.post(
+            YOUTUBE_CHAT_ENDPOINT,
+            params=params,
+            json=body,
+            headers=headers,
+        )
+
+    if response.status_code == 401 and account.refresh_token:
+        access_token = await _refresh_youtube_token(db, account)
+        headers["Authorization"] = f"Bearer {access_token}"
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                YOUTUBE_CHAT_ENDPOINT,
+                params=params,
+                json=body,
+                headers=headers,
+            )
+
+    if response.status_code == 401:
+        raise HTTPException(status_code=401, detail="YouTube authentication expired; please re-authenticate")
+    if response.status_code == 403:
+        raise HTTPException(
+            status_code=403,
+            detail="YouTube rejected the chat message. Confirm the linked account can chat in this livestream.",
+        )
+    if response.status_code not in {200, 201}:
+        detail = {
+            "status": response.status_code,
+            "payload": _safe_body(response) if response.content else None,
+        }
+        raise HTTPException(status_code=502, detail={"youtube_error": detail})
+
+
 async def _moderate_kick(
     db: AsyncSession,
     account: KickUser,
@@ -687,3 +784,190 @@ async def _refresh_kick_token(db: AsyncSession, account: KickUser) -> None:
     )
     await db.commit()
     await db.refresh(account)
+
+
+async def _resolve_youtube_channel(
+    access_token: str,
+    slug: str,
+) -> tuple[Optional[str], Optional[str]]:
+    params_base = {
+        "part": "id,snippet",
+        "maxResults": 1,
+    }
+    attempts: list[dict[str, str]] = []
+    if slug.upper().startswith("UC"):
+        attempts.append({"id": slug})
+    if slug.startswith("@"):
+        attempts.append({"forHandle": slug.lstrip("@")})
+    attempts.append({"forUsername": slug})
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        for attempt in attempts:
+            params = {**params_base, **attempt}
+            response = await client.get(YOUTUBE_CHANNELS_ENDPOINT, params=params, headers=headers)
+            if response.status_code == 401:
+                raise HTTPException(status_code=401, detail="YouTube authentication expired; please re-authenticate")
+            if response.status_code != 200:
+                continue
+            payload = response.json()
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if isinstance(items, list) and items:
+                entry = items[0] if isinstance(items[0], dict) else {}
+                channel_id, title, _ = youtube_sources.YouTubeChatClient._extract_channel_metadata(entry)
+                if channel_id:
+                    return channel_id, title
+
+        if settings.youtube_api_key:
+            params_base["key"] = settings.youtube_api_key
+            for attempt in attempts:
+                params = {**params_base, **attempt}
+                response = await client.get(YOUTUBE_CHANNELS_ENDPOINT, params=params)
+                if response.status_code != 200:
+                    continue
+                payload = response.json()
+                items = payload.get("items") if isinstance(payload, dict) else None
+                if isinstance(items, list) and items:
+                    entry = items[0] if isinstance(items[0], dict) else {}
+                    channel_id, title, _ = youtube_sources.YouTubeChatClient._extract_channel_metadata(entry)
+                    if channel_id:
+                        return channel_id, title
+
+        search_params = {
+            "part": "snippet",
+            "type": "channel",
+            "q": slug,
+            "maxResults": 1,
+        }
+        if settings.youtube_api_key:
+            search_params["key"] = settings.youtube_api_key
+
+        response = await client.get(YOUTUBE_SEARCH_ENDPOINT, params=search_params, headers=headers)
+        if response.status_code != 200:
+            if settings.youtube_api_key and response.status_code == 403:
+                # API key may have quota issues; swallow to fall through.
+                return None, None
+            return None, None
+
+        payload = response.json()
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if isinstance(items, list) and items:
+            entry = items[0] if isinstance(items[0], dict) else {}
+            snippet = entry.get("snippet") if isinstance(entry.get("snippet"), dict) else None
+            channel_id = None
+            if isinstance(snippet, dict):
+                channel_id = snippet.get("channelId")
+            if not channel_id and isinstance(entry.get("id"), dict):
+                channel_id = entry["id"].get("channelId")
+            title = snippet.get("channelTitle") if isinstance(snippet, dict) else None
+            return (
+                str(channel_id) if channel_id else None,
+                title if isinstance(title, str) else None,
+            )
+
+    return None, None
+
+
+async def _resolve_youtube_live_chat_id(
+    access_token: str,
+    account: YouTubeUser,
+    channel_id: str,
+    *,
+    channel_slug: Optional[str] = None,
+) -> Optional[str]:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        if account.channel_id and account.channel_id.lower() == channel_id.lower():
+            params = {
+                "part": "snippet,contentDetails",
+                "broadcastStatus": "active",
+                "broadcastType": "all",
+                "maxResults": 1,
+                "mine": "true",
+            }
+            response = await client.get(
+                YOUTUBE_LIVE_BROADCASTS_ENDPOINT,
+                params=params,
+                headers=headers,
+            )
+            if response.status_code == 401:
+                raise HTTPException(status_code=401, detail="YouTube authentication expired; please re-authenticate")
+            if response.status_code == 200:
+                payload = response.json()
+                items = payload.get("items") if isinstance(payload, dict) else None
+                if isinstance(items, list) and items:
+                    entry = items[0] if isinstance(items[0], dict) else {}
+                    snippet = entry.get("snippet") if isinstance(entry.get("snippet"), dict) else None
+                    live_chat_id = snippet.get("liveChatId") if isinstance(snippet, dict) else None
+                    if not live_chat_id and isinstance(entry.get("contentDetails"), dict):
+                        live_chat_id = entry["contentDetails"].get("boundStreamId")
+                    if live_chat_id:
+                        return str(live_chat_id)
+
+        api_key = settings.youtube_api_key
+        if api_key:
+            live_chat_id = await youtube_sources.fetch_live_chat_id_for_channel(
+                client,
+                api_key=api_key,
+                channel_id=channel_id,
+                channel_slug=channel_slug or account.display_name or account.id,
+            )
+            if live_chat_id:
+                return live_chat_id
+
+    return None
+
+
+async def _ensure_youtube_token(db: AsyncSession, account: YouTubeUser) -> str:
+    if not account.token_expires_at:
+        return account.access_token
+    expires_at = _aware(account.token_expires_at)
+    if expires_at > _now() + timedelta(seconds=60):
+        return account.access_token
+    if not account.refresh_token:
+        raise HTTPException(status_code=401, detail="YouTube token expired; re-authenticate")
+    return await _refresh_youtube_token(db, account)
+
+
+async def _refresh_youtube_token(db: AsyncSession, account: YouTubeUser) -> str:
+    if not account.refresh_token:
+        raise HTTPException(status_code=401, detail="YouTube token expired; re-authenticate")
+    if not settings.youtube_client_id or not settings.youtube_client_secret:
+        raise HTTPException(status_code=503, detail="YouTube OAuth not configured")
+
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": account.refresh_token,
+        "client_id": settings.youtube_client_id,
+        "client_secret": settings.youtube_client_secret,
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.post("https://oauth2.googleapis.com/token", data=data)
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=401, detail="Unable to refresh YouTube token")
+
+    payload = response.json()
+    account.access_token = payload["access_token"]
+    account.refresh_token = payload.get("refresh_token", account.refresh_token)
+    scope = payload.get("scope")
+    if isinstance(scope, list):
+        account.scope = " ".join(scope)
+    elif isinstance(scope, str):
+        account.scope = " ".join(scope.split())
+    expires_in = payload.get("expires_in")
+    account.token_expires_at = (
+        _now() + timedelta(seconds=expires_in)
+        if expires_in is not None
+        else None
+    )
+    await db.commit()
+    await db.refresh(account)
+    return account.access_token

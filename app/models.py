@@ -16,6 +16,7 @@ class OAuthPlatform(str, enum.Enum):
 
     TWITCH = "twitch"
     KICK = "kick"
+    YOUTUBE = "youtube"
 
 
 class TwitchUser(Base):
@@ -80,6 +81,9 @@ class Session(Base):
     kick_user_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("kick_users.id", ondelete="SET NULL"), nullable=True
     )
+    youtube_user_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("youtube_users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -90,7 +94,33 @@ class Session(Base):
 
     twitch_user: Mapped[Optional[TwitchUser]] = relationship(back_populates="sessions")
     kick_user: Mapped[Optional[KickUser]] = relationship(back_populates="sessions")
+    youtube_user: Mapped[Optional["YouTubeUser"]] = relationship(back_populates="sessions")
     oauth_states: Mapped[list["OAuthState"]] = relationship(back_populates="session")
+
+
+class YouTubeUser(Base):
+    """Stored YouTube identity and tokens."""
+
+    __tablename__ = "youtube_users"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    channel_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    display_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    profile_image_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    scope: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    sessions: Mapped[list["Session"]] = relationship(back_populates="youtube_user")
 
 
 class OAuthState(Base):

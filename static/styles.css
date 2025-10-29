@@ -7,6 +7,8 @@
   --kick-green: #53fc18;
   --kick-shadow: rgba(83, 252, 24, 0.35);
   --kick-text: #041400;
+  --youtube-red: #ff2d1d;
+  --youtube-shadow: rgba(255, 45, 29, 0.35);
   --danger-red: #ef4444;
   --danger-shadow: rgba(239, 68, 68, 0.35);
   --connect-blue: #2563eb;
@@ -384,6 +386,11 @@ button.is-busy.button--connect::after {
   --btn-bg: var(--kick-green);
   --btn-fg: var(--kick-text);
   --btn-shadow: var(--kick-shadow);
+}
+
+.button--youtube {
+  --btn-bg: var(--youtube-red);
+  --btn-shadow: var(--youtube-shadow);
 }
 
 .button--dual {
@@ -878,6 +885,10 @@ button.is-busy.button--connect::after {
   background-image: url('https://kick.com/favicon.ico');
 }
 
+.platform-icon.youtube {
+  background-image: url('https://www.google.com/s2/favicons?sz=64&domain=youtube.com');
+}
+
 .moderation-menu {
   position: fixed;
   background: #1f1f23;
@@ -1134,6 +1145,11 @@ button.is-busy.button--connect::after {
 .message-input-field.message-input--kick:focus-within {
   border-color: var(--kick-green);
   box-shadow: 0 0 0 3px var(--kick-shadow);
+}
+
+.message-input-field.message-input--youtube:focus-within {
+  border-color: var(--youtube-red);
+  box-shadow: 0 0 0 3px var(--youtube-shadow);
 }
 
 .message-input-field.is-disabled {

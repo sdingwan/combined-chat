@@ -16,6 +16,7 @@
         <div class="auth-actions">
           <button id="twitchLoginBtn" type="button" class="button--twitch">Login with Twitch</button>
           <button id="kickLoginBtn" type="button" class="button--kick">Login with Kick</button>
+          <button id="youtubeLoginBtn" type="button" class="button--youtube">Login with YouTube</button>
           <button id="logoutBtn" type="button" class="button--danger" disabled>Logout</button>
         </div>
       </div>
@@ -62,6 +63,29 @@
               id="kickInput"
               type="text"
               placeholder="e.g. xqc, adinross (max 10)"
+              autocomplete="off"
+            />
+          </div>
+        </label>
+        <label class="channel-input">
+          <span
+            id="youtubeLabel"
+            class="channel-input__label"
+            role="status"
+            aria-live="polite"
+            aria-label="YouTube chat disconnected"
+            title="YouTube chat disconnected"
+          >YouTube Channel</span>
+          <div class="channel-input__control">
+            <div
+              id="youtubeInputDecor"
+              class="channel-input__overlay"
+              aria-hidden="true"
+            ></div>
+            <input
+              id="youtubeInput"
+              type="text"
+              placeholder="e.g. @yourhandle, UCxxxx (max 10)"
               autocomplete="off"
             />
           </div>

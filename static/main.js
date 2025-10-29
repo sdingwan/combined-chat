@@ -1,6 +1,7 @@
 const form = document.getElementById("channelForm");
 const twitchInput = document.getElementById("twitchInput");
 const kickInput = document.getElementById("kickInput");
+const youtubeInput = document.getElementById("youtubeInput");
 const chatEl = document.getElementById("chat");
 const connectBtn = document.getElementById("connectBtn");
 const disconnectBtn = document.getElementById("disconnectBtn");
@@ -10,11 +11,14 @@ const messageInputWrapper = document.getElementById("messageInputWrapper");
 const platformSelect = document.getElementById("platformSelect");
 const twitchLabel = document.getElementById("twitchLabel");
 const kickLabel = document.getElementById("kickLabel");
+const youtubeLabel = document.getElementById("youtubeLabel");
 const twitchInputOverlay = document.getElementById("twitchInputDecor");
 const kickInputOverlay = document.getElementById("kickInputDecor");
+const youtubeInputOverlay = document.getElementById("youtubeInputDecor");
 const authStatusEl = document.getElementById("authStatus");
 const twitchLoginBtn = document.getElementById("twitchLoginBtn");
 const kickLoginBtn = document.getElementById("kickLoginBtn");
+const youtubeLoginBtn = document.getElementById("youtubeLoginBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const chatPauseBanner = document.getElementById("chatPauseBanner");
 const chatPauseLabel = document.getElementById("chatPauseLabel");
@@ -46,22 +50,25 @@ const bufferedMessages = [];
 let unreadBufferedCount = 0;
 let pausedForScroll = false;
 let suppressScrollHandler = false;
-const currentChannels = { twitch: [], kick: [] };
-const platformConnectionState = { twitch: false, kick: false };
-const platformEverConnected = { twitch: false, kick: false };
+const currentChannels = { twitch: [], kick: [], youtube: [] };
+const platformConnectionState = { twitch: false, kick: false, youtube: false };
+const platformEverConnected = { twitch: false, kick: false, youtube: false };
 const connectedChannelSets = {
   twitch: new Set(),
   kick: new Set(),
+  youtube: new Set(),
 };
 const everConnectedChannelSets = {
   twitch: new Set(),
   kick: new Set(),
+  youtube: new Set(),
 };
 const attemptedChannelSets = {
   twitch: new Set(),
   kick: new Set(),
+  youtube: new Set(),
 };
-const platformAttempted = { twitch: false, kick: false };
+const platformAttempted = { twitch: false, kick: false, youtube: false };
 let replyTarget = null;
 let replyTargetElement = null;
 let preferredSendPlatform = "";
@@ -105,7 +112,7 @@ function createDefaultPersistedState() {
   return {
     connected: false,
     shouldReconnect: false,
-    channels: { twitch: [], kick: [] },
+    channels: { twitch: [], kick: [], youtube: [] },
     messages: [],
   };
 }
@@ -149,12 +156,38 @@ function normalizeChannelSlug(platform, value) {
   if (!raw) {
     return "";
   }
+  const key = normalizePlatformKey(platform) || platform?.toLowerCase() || "";
+  if (key === "youtube") {
+    let slug = raw
+      .replace(/^https?:\/\/(www\.)?youtube\.com\//i, "")
+      .replace(/^https?:\/\/(www\.)?youtu\.be\//i, "")
+      .replace(/^youtube\.com\//i, "")
+      .replace(/^www\.youtube\.com\//i, "")
+      .trim();
+    slug = slug.split("?")[0].split("#")[0];
+    slug = slug.replace(/^live\//i, "");
+    slug = slug.replace(/^channel\//i, "");
+    slug = slug.replace(/^c\//i, "");
+    slug = slug.replace(/^user\//i, "");
+    slug = slug.replace(/\/+$/, "");
+    if (!slug) {
+      return "";
+    }
+    if (slug.startsWith("@")) {
+      return slug.toLowerCase();
+    }
+    if (/^UC[0-9A-Za-z_-]{10,}$/i.test(slug)) {
+      return slug;
+    }
+    return slug.replace(/\s+/g, "").replace(/\//g, "").toLowerCase();
+  }
+
   let slug = raw
     .replace(/^https?:\/\/(www\.)?twitch\.tv\//i, "")
     .replace(/^https?:\/\/(www\.)?kick\.com\//i, "")
     .replace(/^[@#]/, "")
     .replace(/\s+/g, "");
-  if (platform === "kick") {
+  if (key === "kick") {
     slug = slug.replace(/_/g, "-");
   }
   return slug.toLowerCase();
@@ -231,7 +264,7 @@ function parsePlatformOptionValue(value) {
   if (value === "both:*") {
     return { platform: "both", channel: "*" };
   }
-  const match = value.match(/^(twitch|kick)(?::(.+))?$/);
+  const match = value.match(/^(twitch|kick|youtube)(?::(.+))?$/);
   if (!match) {
     return null;
   }
@@ -264,6 +297,7 @@ function loadPersistedState() {
     if (data.channels && typeof data.channels === "object") {
       nextState.channels.twitch = parseChannelList(data.channels.twitch, "twitch");
       nextState.channels.kick = parseChannelList(data.channels.kick, "kick");
+      nextState.channels.youtube = parseChannelList(data.channels.youtube, "youtube");
     }
     nextState.messages = sanitizePersistedMessages(data.messages);
     persistedState = nextState;
@@ -427,10 +461,17 @@ const moderationSuccessSuffix = {
 };
 let moderationMenuTarget = null;
 let moderationMenuAnchor = null;
-const sendButtonPlatformClasses = ["button--twitch", "button--kick", "button--dual", "button--neutral"];
+const sendButtonPlatformClasses = [
+  "button--twitch",
+  "button--kick",
+  "button--youtube",
+  "button--dual",
+  "button--neutral",
+];
 const messageInputPlatformClasses = [
   "message-input--twitch",
   "message-input--kick",
+  "message-input--youtube",
   "message-input--neutral",
 ];
 
@@ -502,7 +543,7 @@ function finalizeConnection() {
 
 function normalizePlatformKey(value) {
   const raw = typeof value === "string" ? value.toLowerCase() : "";
-  return raw === "twitch" || raw === "kick" ? raw : "";
+  return raw === "twitch" || raw === "kick" || raw === "youtube" ? raw : "";
 }
 
 function resetPlatformConnectionState(options = {}) {
@@ -583,6 +624,11 @@ function renderChannelInputDecorations() {
       input: kickInput,
       overlay: kickInputOverlay,
     },
+    {
+      platform: "youtube",
+      input: youtubeInput,
+      overlay: youtubeInputOverlay,
+    },
   ];
 
   pairs.forEach(({ platform, input, overlay }) => {
@@ -648,6 +694,7 @@ function updateConnectionIndicators() {
   const pairs = [
     { platform: "twitch", label: twitchLabel },
     { platform: "kick", label: kickLabel },
+    { platform: "youtube", label: youtubeLabel },
   ];
 
   pairs.forEach(({ platform, label }) => {
@@ -768,6 +815,14 @@ function announceDisconnectStatus(options = {}) {
           : `${twitchEver.slice(0, 10).join(", ")}`;
       notices.push(`Disconnected from Twitch chat for ${summary}`);
     }
+    const youtubeEver = Array.from(everConnectedChannelSets.youtube);
+    if (youtubeEver.length) {
+      const summary =
+        youtubeEver.length === 1
+          ? youtubeEver[0]
+          : `${youtubeEver.slice(0, 10).join(", ")}`;
+      notices.push(`Disconnected from YouTube chat for ${summary}`);
+    }
     if (notices.length === 0) {
       notices.push("Disconnected.");
     }
@@ -850,8 +905,10 @@ function buildPlatformOptions() {
   const options = [];
   const twitchConnected = Array.from(connectedChannelSets.twitch || []);
   const kickConnected = Array.from(connectedChannelSets.kick || []);
+  const youtubeConnected = Array.from(connectedChannelSets.youtube || []);
   const twitchLinked = hasAccount("twitch");
   const kickLinked = hasAccount("kick");
+  const youtubeLinked = hasAccount("youtube");
 
   const addOption = (value, label) => {
     options.push({ value, label });
@@ -895,6 +952,18 @@ function buildPlatformOptions() {
     });
   }
 
+  if (youtubeLinked && youtubeConnected.length) {
+    if (youtubeConnected.length > 1) {
+      addOption(
+        "youtube:*",
+        `YouTube (All ${youtubeConnected.length})`
+      );
+    }
+    youtubeConnected.forEach((channel) => {
+      addOption(`youtube:${channel}`, `YouTube (${channel})`);
+    });
+  }
+
   if (replyTarget && replyTarget.platform) {
     const replyValue = platformOptionValue(
       replyTarget.platform,
@@ -920,6 +989,8 @@ function applySendButtonStyle(selectionValue) {
       ? "button--twitch"
       : platform === "kick"
         ? "button--kick"
+        : platform === "youtube"
+          ? "button--youtube"
         : platform === "both"
           ? "button--dual"
           : "button--neutral";
@@ -933,6 +1004,8 @@ function applySendButtonStyle(selectionValue) {
         ? "message-input--twitch"
         : platform === "kick"
           ? "message-input--kick"
+          : platform === "youtube"
+            ? "message-input--youtube"
           : "message-input--neutral";
     messageInput.classList.remove(...messageInputPlatformClasses);
     messageInput.classList.add(inputClass);
@@ -1185,6 +1258,7 @@ function updateMessageControls() {
   const channelInputs = [
     { el: twitchInput, lockLabel: "Disconnect to change Twitch channel" },
     { el: kickInput, lockLabel: "Disconnect to change Kick channel" },
+    { el: youtubeInput, lockLabel: "Disconnect to change YouTube channel" },
   ];
 
   channelInputs.forEach(({ el, lockLabel }) => {
@@ -1438,6 +1512,7 @@ function renderAuthState() {
     const linked = [
       hasAccount("twitch") ? "Twitch ✓" : "Twitch ×",
       hasAccount("kick") ? "Kick ✓" : "Kick ×",
+      hasAccount("youtube") ? "YouTube ✓" : "YouTube ×",
     ];
     authStatusEl.textContent = `${displayName} — Linked: ${linked.join(" · ")}`;
     logoutBtn.disabled = false;
@@ -1453,6 +1528,10 @@ function renderAuthState() {
   const kickLinked = hasAccount("kick");
   kickLoginBtn.textContent = kickLinked ? "Kick Linked" : "Login with Kick";
   kickLoginBtn.disabled = kickLinked;
+
+  const youtubeLinked = hasAccount("youtube");
+  youtubeLoginBtn.textContent = youtubeLinked ? "YouTube Linked" : "Login with YouTube";
+  youtubeLoginBtn.disabled = youtubeLinked;
 
   updateMessageControls();
 }
@@ -1705,6 +1784,9 @@ function formatPlatformName(value) {
   if (!trimmed) {
     return "Platform";
   }
+  if (trimmed.toLowerCase() === "youtube") {
+    return "YouTube";
+  }
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
@@ -1716,6 +1798,10 @@ async function performModeration(action, duration) {
   }
 
   const { platform, username, userId } = targetMeta;
+  if (normalizePlatformKey(platform) === "youtube") {
+    setStatus("YouTube moderation is not available yet.");
+    return;
+  }
   const normalizedPlatform = platform === "twitch" ? "twitch" : "kick";
   const configured = currentChannels[normalizedPlatform] || [];
   const normalizedChannel =
@@ -2037,7 +2123,7 @@ function createMessageElement(payload) {
       badgeRow.appendChild(avatar);
     }
 
-    if (data.platform === "twitch" || data.platform === "kick") {
+    if (data.platform === "twitch" || data.platform === "kick" || data.platform === "youtube") {
       const platformBadge = document.createElement("span");
       platformBadge.classList.add("platform-icon", data.platform);
       badgeRow.appendChild(platformBadge);
@@ -2482,7 +2568,10 @@ function scheduleReconnect() {
   if (reconnectTimer) {
     return;
   }
-  const hasChannels = currentChannels.twitch.length || currentChannels.kick.length;
+  const hasChannels =
+    currentChannels.twitch.length ||
+    currentChannels.kick.length ||
+    currentChannels.youtube.length;
   if (!hasChannels) {
     return;
   }
@@ -2511,24 +2600,29 @@ function connect(options = {}) {
   clearReconnectSchedule();
   const twitchChannels = parseChannelList(twitchInput.value || "", "twitch");
   const kickChannels = parseChannelList(kickInput.value || "", "kick");
+  const youtubeChannels = parseChannelList(youtubeInput.value || "", "youtube");
 
-  if (!twitchChannels.length && !kickChannels.length) {
+  if (!twitchChannels.length && !kickChannels.length && !youtubeChannels.length) {
     setStatus("Enter at least one streamer to start listening.");
     return;
   }
 
   twitchInput.value = formatChannelList(twitchChannels);
   kickInput.value = formatChannelList(kickChannels);
+  youtubeInput.value = formatChannelList(youtubeChannels);
   setAttemptedChannels("twitch", twitchChannels);
   setAttemptedChannels("kick", kickChannels);
+  setAttemptedChannels("youtube", youtubeChannels);
   renderChannelInputDecorations();
 
   hideModerationMenu();
   const previousTwitch = currentChannels.twitch || [];
   const previousKick = currentChannels.kick || [];
+  const previousYouTube = currentChannels.youtube || [];
   const channelsChanged =
     !channelArraysEqual(twitchChannels, previousTwitch) ||
-    !channelArraysEqual(kickChannels, previousKick);
+    !channelArraysEqual(kickChannels, previousKick) ||
+    !channelArraysEqual(youtubeChannels, previousYouTube);
 
   if (!preserveMessages && channelsChanged) {
     clearChat({ resetPersisted: true });
@@ -2537,6 +2631,7 @@ function connect(options = {}) {
     // Ensure persisted state reflects current values without dropping messages
     persistedState.channels.twitch = [...twitchChannels];
     persistedState.channels.kick = [...kickChannels];
+    persistedState.channels.youtube = [...youtubeChannels];
     savePersistedState();
   }
   connectionFinalized = false;
@@ -2546,9 +2641,11 @@ function connect(options = {}) {
 
   currentChannels.twitch = [...twitchChannels];
   currentChannels.kick = [...kickChannels];
+  currentChannels.youtube = [...youtubeChannels];
   if (persistenceAvailable) {
     persistedState.channels.twitch = [...twitchChannels];
     persistedState.channels.kick = [...kickChannels];
+    persistedState.channels.youtube = [...youtubeChannels];
     savePersistedState();
   }
 
@@ -2583,6 +2680,7 @@ function connect(options = {}) {
       persistedState.shouldReconnect = true;
       persistedState.channels.twitch = [...twitchChannels];
       persistedState.channels.kick = [...kickChannels];
+      persistedState.channels.youtube = [...youtubeChannels];
       savePersistedState();
     }
     activeSocket.send(
@@ -2590,6 +2688,7 @@ function connect(options = {}) {
         action: "subscribe",
         twitch: twitchChannels,
         kick: kickChannels,
+        youtube: youtubeChannels,
       })
     );
   });
@@ -2671,6 +2770,13 @@ kickLoginBtn.addEventListener("click", () => {
   window.location.href = `/auth/kick/login?redirect_path=${currentRedirectPath()}`;
 });
 
+youtubeLoginBtn.addEventListener("click", () => {
+  if (youtubeLoginBtn.disabled) {
+    return;
+  }
+  window.location.href = `/auth/youtube/login?redirect_path=${currentRedirectPath()}`;
+});
+
 logoutBtn.addEventListener("click", async () => {
   try {
     await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
@@ -2690,6 +2796,8 @@ twitchInput.addEventListener("input", updateMessageControls);
 kickInput.addEventListener("input", updateMessageControls);
 twitchInput.addEventListener("input", renderChannelInputDecorations);
 kickInput.addEventListener("input", renderChannelInputDecorations);
+youtubeInput.addEventListener("input", updateMessageControls);
+youtubeInput.addEventListener("input", renderChannelInputDecorations);
 
 const fallbackPalette = [
   "#ff75e6",
@@ -2811,14 +2919,19 @@ function restoreFromPersistedState() {
   const channels = persistedState.channels || {};
   const twitchList = parseChannelList(channels.twitch, "twitch");
   const kickList = parseChannelList(channels.kick, "kick");
+  const youtubeList = parseChannelList(channels.youtube, "youtube");
   if (twitchInput) {
     twitchInput.value = formatChannelList(twitchList);
   }
   if (kickInput) {
     kickInput.value = formatChannelList(kickList);
   }
+  if (youtubeInput) {
+    youtubeInput.value = formatChannelList(youtubeList);
+  }
   currentChannels.twitch = [...twitchList];
   currentChannels.kick = [...kickList];
+  currentChannels.youtube = [...youtubeList];
   renderChannelInputDecorations();
 
   if (persistedState.messages && persistedState.messages.length) {
