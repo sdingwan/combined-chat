@@ -77,6 +77,11 @@ let chatFontScale = 1.2;
 const maxOutgoingMessageLength = 500;
 const autoReconnectBaseDelay = 1500;
 const autoReconnectMaxDelay = 30000;
+const fatalChannelSets = {
+  twitch: new Set(),
+  kick: new Set(),
+  youtube: new Set(),
+};
 
 const storageKey = "combinedChatState";
 let lengthLimitWarningActive = false;
@@ -85,6 +90,7 @@ let reconnectTimer = null;
 let userInitiatedDisconnect = false;
 let reconnectNoticeActive = false;
 let reconnectNoticeLastUpdate = 0;
+let autoReconnectSuppressed = false;
 
 if (replyPreviewIcon) {
   replyPreviewIcon.innerHTML = replyArrowSvgMarkup;
@@ -590,6 +596,94 @@ function resetPlatformConnectionState(options = {}) {
   }
 }
 
+function clearFatalChannelState() {
+  Object.keys(fatalChannelSets).forEach((platform) => {
+    const set = fatalChannelSets[platform];
+    if (set && set.size) {
+      set.clear();
+    }
+  });
+  autoReconnectSuppressed = false;
+}
+
+function markChannelFatal(platform, channel) {
+  const key = normalizePlatformKey(platform);
+  if (!key || !channel) {
+    return false;
+  }
+  const set = fatalChannelSets[key];
+  if (set && !set.has(channel)) {
+    set.add(channel);
+    return true;
+  }
+  return false;
+}
+
+function clearFatalChannel(platform, channel) {
+  const key = normalizePlatformKey(platform);
+  if (!key || !channel) {
+    return false;
+  }
+  const set = fatalChannelSets[key];
+  if (set && set.has(channel)) {
+    set.delete(channel);
+    return true;
+  }
+  return false;
+}
+
+function shouldSuppressReconnect() {
+  if (autoReconnectSuppressed) {
+    return true;
+  }
+  return !hasReconnectTargets();
+}
+
+function hasReconnectTargets() {
+  return ["twitch", "kick", "youtube"].some((platform) => hasDesiredChannels(platform));
+}
+
+function suppressAutoReconnect() {
+  if (autoReconnectSuppressed) {
+    return;
+  }
+  autoReconnectSuppressed = true;
+  clearReconnectSchedule();
+  if (persistenceAvailable) {
+    persistedState.shouldReconnect = false;
+    savePersistedState();
+  }
+}
+
+function isFatalChannelError(message) {
+  if (!message) {
+    return false;
+  }
+  const text = String(message).toLowerCase();
+  const fatalPhrases = [
+    "not found",
+    "no active",
+    "please provide at least one streamer name",
+    "expected subscribe action",
+    "lookup returned status",
+    "response missing chatroom id",
+    "response was not valid json",
+    "quota exceeded",
+    "access denied",
+  ];
+  if (fatalPhrases.some((phrase) => text.includes(phrase))) {
+    return true;
+  }
+  const statusMatch = text.match(/status\s+(\d{3})/);
+  if (statusMatch) {
+    const code = Number(statusMatch[1]);
+    if (!Number.isNaN(code) && (code >= 400 && code < 600)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function setAttemptedChannels(platform, channels) {
   const key = normalizePlatformKey(platform);
   if (!key) {
@@ -607,9 +701,7 @@ function setAttemptedChannels(platform, channels) {
       }
     });
   }
-  if (channels && channels.length) {
-    platformAttempted[key] = true;
-  }
+  platformAttempted[key] = Boolean(channels && channels.length);
 }
 
 function renderChannelInputDecorations() {
@@ -741,9 +833,13 @@ function updatePlatformConnectionState(payload) {
   const channelSet = connectedChannelSets[platform];
   const everSet = everConnectedChannelSets[platform];
   let stateChanged = false;
+  let fatalError = false;
 
   if (type === "status" && indicatesConnect) {
     if (channelSlug) {
+      if (clearFatalChannel(platform, channelSlug)) {
+        stateChanged = true;
+      }
       if (!channelSet.has(channelSlug)) {
         channelSet.add(channelSlug);
         stateChanged = true;
@@ -769,6 +865,21 @@ function updatePlatformConnectionState(payload) {
     stateChanged = true;
   }
 
+  if (type === "error") {
+    fatalError = isFatalChannelError(normalizedMessage);
+    if (fatalError) {
+      if (channelSlug) {
+        if (markChannelFatal(platform, channelSlug)) {
+          stateChanged = true;
+        }
+      }
+    } else if (channelSlug) {
+      if (clearFatalChannel(platform, channelSlug)) {
+        stateChanged = true;
+      }
+    }
+  }
+
   const nextConnected = channelSet.size > 0;
   if (platformConnectionState[platform] !== nextConnected) {
     platformConnectionState[platform] = nextConnected;
@@ -783,12 +894,17 @@ function updatePlatformConnectionState(payload) {
     finalizeConnection();
   }
   if (
+    !fatalError &&
     !platformConnectionState[platform] &&
     socket &&
     socket.readyState === WebSocket.OPEN &&
     hasDesiredChannels(platform)
   ) {
     scheduleReconnect();
+  }
+
+  if (fatalError && shouldSuppressReconnect()) {
+    suppressAutoReconnect();
   }
 }
 
@@ -2538,7 +2654,14 @@ function hasDesiredChannels(platform) {
     return false;
   }
   const desired = currentChannels[key];
-  return Array.isArray(desired) && desired.length > 0;
+  if (!Array.isArray(desired) || !desired.length) {
+    return false;
+  }
+  const fatalSet = fatalChannelSets[key];
+  if (!fatalSet || !fatalSet.size) {
+    return true;
+  }
+  return desired.some((channel) => !fatalSet.has(channel));
 }
 
 function reportReconnectStatus(delaySeconds) {
@@ -2568,11 +2691,10 @@ function scheduleReconnect() {
   if (reconnectTimer) {
     return;
   }
-  const hasChannels =
-    currentChannels.twitch.length ||
-    currentChannels.kick.length ||
-    currentChannels.youtube.length;
-  if (!hasChannels) {
+  if (autoReconnectSuppressed) {
+    return;
+  }
+  if (!hasReconnectTargets()) {
     return;
   }
   reconnectAttempts += 1;
@@ -2598,6 +2720,9 @@ function connect(options = {}) {
   }
   userInitiatedDisconnect = false;
   clearReconnectSchedule();
+  if (!autoReconnect) {
+    clearFatalChannelState();
+  }
   const twitchChannels = parseChannelList(twitchInput.value || "", "twitch");
   const kickChannels = parseChannelList(kickInput.value || "", "kick");
   const youtubeChannels = parseChannelList(youtubeInput.value || "", "youtube");
@@ -2723,8 +2848,18 @@ function connect(options = {}) {
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = true;
     resetConnectState();
-    scheduleReconnect();
-    announceDisconnectStatus({ quietIfRetrying: !userInitiatedDisconnect });
+    const shouldRetry = !shouldSuppressReconnect();
+    if (shouldRetry) {
+      scheduleReconnect();
+      announceDisconnectStatus({ quietIfRetrying: !userInitiatedDisconnect });
+    } else {
+      reconnectNoticeActive = false;
+      reconnectNoticeLastUpdate = 0;
+      if (persistenceAvailable) {
+        persistedState.shouldReconnect = false;
+        savePersistedState();
+      }
+    }
   });
 
   activeSocket.addEventListener("error", (event) => {
@@ -2743,7 +2878,12 @@ function connect(options = {}) {
     setButtonBusy(disconnectBtn, false);
     disconnectBtn.disabled = true;
     resetConnectState();
-    scheduleReconnect();
+    if (!shouldSuppressReconnect()) {
+      scheduleReconnect();
+    } else if (persistenceAvailable) {
+      persistedState.shouldReconnect = false;
+      savePersistedState();
+    }
   });
 }
 

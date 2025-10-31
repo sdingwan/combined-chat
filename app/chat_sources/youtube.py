@@ -209,6 +209,8 @@ class YouTubeChatClient:
         for attempt in attempts:
             params = {**params_base, **attempt}
             response = await client.get(CHANNELS_ENDPOINT, params=params)
+            if response.status_code in {401, 403}:
+                raise RuntimeError("YouTube API quota exceeded or access denied")
             if response.status_code != 200:
                 continue
             payload = response.json()
@@ -225,6 +227,8 @@ class YouTubeChatClient:
             "key": self._api_key,
         }
         response = await client.get(SEARCH_ENDPOINT, params=search_params)
+        if response.status_code in {401, 403}:
+            raise RuntimeError("YouTube API quota exceeded or access denied")
         if response.status_code == 200:
             payload = response.json()
             items = payload.get("items") if isinstance(payload, dict) else None
