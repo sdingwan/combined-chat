@@ -598,7 +598,7 @@ async def _send_youtube_message(
 ) -> None:
     slug = _normalise_youtube_slug(channel)
     if not slug:
-        raise HTTPException(status_code=400, detail="Channel is required")
+        raise HTTPException(status_code=400, detail="YouTube channel handle must start with '@'")
 
     access_token = await _ensure_youtube_token(db, account)
     channel_id, _ = await _resolve_youtube_channel(access_token, slug)
@@ -790,16 +790,27 @@ async def _resolve_youtube_channel(
     access_token: str,
     slug: str,
 ) -> tuple[Optional[str], Optional[str]]:
+    normalized_slug = _normalise_youtube_slug(slug)
+
+    if not normalized_slug or not normalized_slug.startswith("@"):
+        return None, None
+
+    if settings.youtube_api_key:
+        channel_id, title, _ = await youtube_sources.resolve_channel_metadata(
+            normalized_slug,
+            api_key=settings.youtube_api_key,
+        )
+        if channel_id:
+            return channel_id, title
+
     params_base = {
         "part": "id,snippet",
         "maxResults": 1,
     }
+
+    oauth_slug = normalized_slug
     attempts: list[dict[str, str]] = []
-    if slug.upper().startswith("UC"):
-        attempts.append({"id": slug})
-    if slug.startswith("@"):
-        attempts.append({"forHandle": slug.lstrip("@")})
-    attempts.append({"forUsername": slug})
+    attempts.append({"forHandle": oauth_slug.lstrip("@")})
 
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -821,53 +832,6 @@ async def _resolve_youtube_channel(
                 channel_id, title, _ = youtube_sources.YouTubeChatClient._extract_channel_metadata(entry)
                 if channel_id:
                     return channel_id, title
-
-        if settings.youtube_api_key:
-            params_base["key"] = settings.youtube_api_key
-            for attempt in attempts:
-                params = {**params_base, **attempt}
-                response = await client.get(YOUTUBE_CHANNELS_ENDPOINT, params=params)
-                if response.status_code != 200:
-                    continue
-                payload = response.json()
-                items = payload.get("items") if isinstance(payload, dict) else None
-                if isinstance(items, list) and items:
-                    entry = items[0] if isinstance(items[0], dict) else {}
-                    channel_id, title, _ = youtube_sources.YouTubeChatClient._extract_channel_metadata(entry)
-                    if channel_id:
-                        return channel_id, title
-
-        search_params = {
-            "part": "snippet",
-            "type": "channel",
-            "q": slug,
-            "maxResults": 1,
-        }
-        if settings.youtube_api_key:
-            search_params["key"] = settings.youtube_api_key
-
-        response = await client.get(YOUTUBE_SEARCH_ENDPOINT, params=search_params, headers=headers)
-        if response.status_code != 200:
-            if settings.youtube_api_key and response.status_code == 403:
-                # API key may have quota issues; swallow to fall through.
-                return None, None
-            return None, None
-
-        payload = response.json()
-        items = payload.get("items") if isinstance(payload, dict) else None
-        if isinstance(items, list) and items:
-            entry = items[0] if isinstance(items[0], dict) else {}
-            snippet = entry.get("snippet") if isinstance(entry.get("snippet"), dict) else None
-            channel_id = None
-            if isinstance(snippet, dict):
-                channel_id = snippet.get("channelId")
-            if not channel_id and isinstance(entry.get("id"), dict):
-                channel_id = entry["id"].get("channelId")
-            title = snippet.get("channelTitle") if isinstance(snippet, dict) else None
-            return (
-                str(channel_id) if channel_id else None,
-                title if isinstance(title, str) else None,
-            )
 
     return None, None
 
@@ -913,11 +877,11 @@ async def _resolve_youtube_live_chat_id(
 
         api_key = settings.youtube_api_key
         if api_key:
-            live_chat_id = await youtube_sources.fetch_live_chat_id_for_channel(
-                client,
+            live_chat_id = await youtube_sources.resolve_live_chat_id(
+                channel_id,
                 api_key=api_key,
-                channel_id=channel_id,
                 channel_slug=channel_slug or account.display_name or account.id,
+                client=client,
             )
             if live_chat_id:
                 return live_chat_id

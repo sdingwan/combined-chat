@@ -176,16 +176,17 @@ function normalizeChannelSlug(platform, value) {
     slug = slug.replace(/^c\//i, "");
     slug = slug.replace(/^user\//i, "");
     slug = slug.replace(/\/+$/, "");
+    const slashIndex = slug.indexOf("/");
+    if (slashIndex !== -1) {
+      slug = slug.slice(0, slashIndex);
+    }
     if (!slug) {
       return "";
     }
-    if (slug.startsWith("@")) {
-      return slug.toLowerCase();
+    if (!slug.startsWith("@")) {
+      return "";
     }
-    if (/^UC[0-9A-Za-z_-]{10,}$/i.test(slug)) {
-      return slug;
-    }
-    return slug.replace(/\s+/g, "").replace(/\//g, "").toLowerCase();
+    return slug.toLowerCase();
   }
 
   let slug = raw
