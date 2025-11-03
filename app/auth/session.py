@@ -11,7 +11,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import KickUser, Session, TwitchUser
+from app.models import KickUser, Session, TwitchUser, YouTubeUser
 
 
 @dataclass
@@ -21,6 +21,7 @@ class SessionContext:
     session: Session
     twitch_user: Optional[TwitchUser]
     kick_user: Optional[KickUser]
+    youtube_user: Optional["YouTubeUser"]
 
 
 def _now() -> datetime:
@@ -49,6 +50,7 @@ async def create_session(
     *,
     twitch_user: Optional[TwitchUser] = None,
     kick_user: Optional[KickUser] = None,
+    youtube_user: Optional[YouTubeUser] = None,
 ) -> Session:
     """Create a new persistent session and set the cookie."""
 
@@ -59,6 +61,7 @@ async def create_session(
         id=session_id,
         twitch_user_id=twitch_user.id if twitch_user else None,
         kick_user_id=kick_user.id if kick_user else None,
+        youtube_user_id=youtube_user.id if youtube_user else None,
         expires_at=expires_at,
     )
     db.add(record)
@@ -107,7 +110,17 @@ async def _load_session(
         if record.kick_user_id
         else None
     )
-    return SessionContext(session=record, twitch_user=twitch_user, kick_user=kick_user)
+    youtube_user = (
+        await db.get(YouTubeUser, record.youtube_user_id)
+        if record.youtube_user_id
+        else None
+    )
+    return SessionContext(
+        session=record,
+        twitch_user=twitch_user,
+        kick_user=kick_user,
+        youtube_user=youtube_user,
+    )
 
 
 async def get_current_user(
@@ -128,6 +141,7 @@ async def ensure_session(
     *,
     twitch_user: Optional[TwitchUser] = None,
     kick_user: Optional[KickUser] = None,
+    youtube_user: Optional["YouTubeUser"] = None,
 ) -> SessionContext:
     """Ensure the browser has an active session linked to the supplied identities."""
 
@@ -152,6 +166,13 @@ async def ensure_session(
         elif kick_user and current.kick_user is None:
             current.kick_user = kick_user
 
+        if youtube_user and session.youtube_user_id != youtube_user.id:
+            session.youtube_user_id = youtube_user.id
+            updated = True
+            current.youtube_user = youtube_user
+        elif youtube_user and current.youtube_user is None:
+            current.youtube_user = youtube_user
+
         if session.expires_at != expires_at:
             session.expires_at = expires_at
             updated = True
@@ -165,6 +186,7 @@ async def ensure_session(
             session=session,
             twitch_user=current.twitch_user,
             kick_user=current.kick_user,
+            youtube_user=current.youtube_user,
         )
 
     session = await create_session(
@@ -172,5 +194,11 @@ async def ensure_session(
         response,
         twitch_user=twitch_user,
         kick_user=kick_user,
+        youtube_user=youtube_user,
     )
-    return SessionContext(session=session, twitch_user=twitch_user, kick_user=kick_user)
+    return SessionContext(
+        session=session,
+        twitch_user=twitch_user,
+        kick_user=kick_user,
+        youtube_user=youtube_user,
+    )

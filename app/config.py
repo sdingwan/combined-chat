@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     kick_client_secret: Optional[str] = Field(default=None, env="KICK_CLIENT_SECRET")
     kick_redirect_uri: Optional[str] = Field(default=None, env="KICK_REDIRECT_URI")
     kick_scopes: str = Field(default="user:read channel:read chat:read chat:write", env="KICK_SCOPES")
+    youtube_client_id: Optional[str] = Field(default=None, env="YOUTUBE_CLIENT_ID")
+    youtube_client_secret: Optional[str] = Field(default=None, env="YOUTUBE_CLIENT_SECRET")
+    youtube_redirect_uri: Optional[str] = Field(default=None, env="YOUTUBE_REDIRECT_URI")
+    youtube_api_key: Optional[str] = Field(default=None, env="YOUTUBE_API_KEY")
     session_cookie_name: str = Field(default="combined_chat_session")
     session_secret: str = Field(
         default_factory=lambda: secrets.token_urlsafe(32),
