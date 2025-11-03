@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.session import destroy_session, ensure_session, get_current_user
 from app.auth.state import consume_state, create_state
+from app.youtube_logging import log_quota_call
 from app.config import settings
 from app.db import get_session
 from app.models import KickUser, OAuthPlatform, TwitchUser, YouTubeUser
@@ -722,6 +723,11 @@ async def _fetch_youtube_channel(
         "maxResults": 1,
     }
     async with httpx.AsyncClient(timeout=10) as client:
+        log_quota_call(
+            "channels.list",
+            reason="oauth_fetch_channel",
+            params={"mine": True},
+        )
         response = await client.get(YOUTUBE_CHANNELS_URL, params=params, headers=headers)
 
     if response.status_code != 200:

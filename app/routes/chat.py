@@ -17,6 +17,7 @@ from app.config import settings
 from app.db import get_session
 from app.models import KickUser, OAuthPlatform, TwitchUser, YouTubeUser
 from app.chat_sources import youtube as youtube_sources
+from app.youtube_logging import log_quota_call
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -629,6 +630,11 @@ async def _send_youtube_message(
     params = {"part": "snippet"}
 
     async with httpx.AsyncClient(timeout=10) as client:
+        log_quota_call(
+            "liveChatMessages.insert",
+            reason="send_message",
+            params={"channel": channel, "account": account.id},
+        )
         response = await client.post(
             YOUTUBE_CHAT_ENDPOINT,
             params=params,
@@ -640,6 +646,11 @@ async def _send_youtube_message(
         access_token = await _refresh_youtube_token(db, account)
         headers["Authorization"] = f"Bearer {access_token}"
         async with httpx.AsyncClient(timeout=10) as client:
+            log_quota_call(
+                "liveChatMessages.insert",
+                reason="send_message_retry",
+                params={"channel": channel, "account": account.id},
+            )
             response = await client.post(
                 YOUTUBE_CHAT_ENDPOINT,
                 params=params,
@@ -821,6 +832,12 @@ async def _resolve_youtube_channel(
         for attempt in attempts:
             params = {**params_base, **attempt}
             response = await client.get(YOUTUBE_CHANNELS_ENDPOINT, params=params, headers=headers)
+            attempt_key = next(iter(attempt.keys()), "unknown")
+            log_quota_call(
+                "channels.list",
+                reason="resolve_handle_oauth",
+                params={"handle": oauth_slug, "method": attempt_key},
+            )
             if response.status_code == 401:
                 raise HTTPException(status_code=401, detail="YouTube authentication expired; please re-authenticate")
             if response.status_code != 200:
@@ -860,6 +877,11 @@ async def _resolve_youtube_live_chat_id(
                 YOUTUBE_LIVE_BROADCASTS_ENDPOINT,
                 params=params,
                 headers=headers,
+            )
+            log_quota_call(
+                "liveBroadcasts.list",
+                reason="lookup_broadcaster_live_chat",
+                params={"account": account.id},
             )
             if response.status_code == 401:
                 raise HTTPException(status_code=401, detail="YouTube authentication expired; please re-authenticate")

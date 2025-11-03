@@ -9,6 +9,7 @@ import httpx
 from app.config import settings
 from app.db import AsyncSessionMaker
 from app.models import YouTubeChannelCache, YouTubeLiveChatCache
+from app.youtube_logging import log_quota_call
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,12 @@ async def _resolve_channel_metadata_with_client(
         params = {**params_base, **attempt}
         if api_key:
             params["key"] = api_key
+        attempt_key = next(iter(attempt.keys()), "unknown")
+        log_quota_call(
+            "channels.list",
+            reason="resolve_handle",
+            params={"handle": slug, "method": attempt_key},
+        )
         response = await client.get(CHANNELS_ENDPOINT, params=params)
         if response.status_code in {401, 403} and api_key:
             break
@@ -480,6 +487,11 @@ class YouTubeChatClient:
                     if next_page_token:
                         params["pageToken"] = next_page_token
 
+                    log_quota_call(
+                        "liveChatMessages.list",
+                        reason="poll",
+                        params={"channel": self.channel},
+                    )
                     try:
                         response = await client.get(LIVE_CHAT_MESSAGES_ENDPOINT, params=params)
                     except httpx.HTTPError as exc:
@@ -682,6 +694,11 @@ async def fetch_live_chat_id_for_channel(
         "maxResults": 1,
         "key": api_key,
     }
+    log_quota_call(
+        "search.list",
+        reason="discover_live_video",
+        params={"channel_id": channel_id, "mode": "channelId"},
+    )
     response = await client.get(SEARCH_ENDPOINT, params=primary_search_params)
     if response.status_code == 200:
         payload = response.json()
@@ -704,6 +721,11 @@ async def fetch_live_chat_id_for_channel(
             "key": api_key,
             "q": channel_slug,
         }
+        log_quota_call(
+            "search.list",
+            reason="discover_live_video_fallback",
+            params={"handle": channel_slug},
+        )
         response = await client.get(SEARCH_ENDPOINT, params=secondary_params)
         if response.status_code == 200:
             payload = response.json()
@@ -726,6 +748,11 @@ async def fetch_live_chat_id_for_channel(
         "key": api_key,
         "maxResults": 1,
     }
+    log_quota_call(
+        "videos.list",
+        reason="resolve_live_chat",
+        params={"video_id": video_id},
+    )
     response = await client.get(VIDEOS_ENDPOINT, params=video_params)
     if response.status_code != 200:
         logger.debug(
