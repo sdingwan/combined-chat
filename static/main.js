@@ -91,6 +91,7 @@ let userInitiatedDisconnect = false;
 let reconnectNoticeActive = false;
 let reconnectNoticeLastUpdate = 0;
 let autoReconnectSuppressed = false;
+const youtubeFeatureEnabled = false;
 
 if (replyPreviewIcon) {
   replyPreviewIcon.innerHTML = replyArrowSvgMarkup;
@@ -1373,12 +1374,18 @@ function updateMessageControls() {
   const options = buildPlatformOptions();
   const isLocked = connectionReady;
   const channelInputs = [
-    { el: twitchInput, lockLabel: "Disconnect to change Twitch channel" },
-    { el: kickInput, lockLabel: "Disconnect to change Kick channel" },
-    { el: youtubeInput, lockLabel: "Disconnect to change YouTube channel" },
+    { el: twitchInput, lockLabel: "Disconnect to change Twitch channel", disabled: false },
+    { el: kickInput, lockLabel: "Disconnect to change Kick channel", disabled: false },
+    {
+      el: youtubeInput,
+      lockLabel: "Disconnect to change YouTube channel",
+      disabled: !youtubeFeatureEnabled,
+      disabledPlaceholder: "YouTube chat is unavailable",
+      disabledTitle: "YouTube integration is temporarily disabled.",
+    },
   ];
 
-  channelInputs.forEach(({ el, lockLabel }) => {
+  channelInputs.forEach(({ el, lockLabel, disabled, disabledPlaceholder, disabledTitle }) => {
     if (!el) {
       return;
     }
@@ -1389,6 +1396,18 @@ function updateMessageControls() {
       el.dataset.originalTitle = el.title || "";
     }
 
+    if (disabled) {
+      el.value = "";
+      el.readOnly = true;
+      el.disabled = true;
+      el.classList.add("input--locked");
+      el.setAttribute("aria-disabled", "true");
+      el.placeholder = disabledPlaceholder || lockLabel;
+      el.title = disabledTitle || lockLabel;
+      return;
+    }
+
+    el.disabled = false;
     el.readOnly = isLocked;
     el.classList.toggle("input--locked", isLocked);
     if (isLocked) {
@@ -1646,9 +1665,16 @@ function renderAuthState() {
   kickLoginBtn.textContent = kickLinked ? "Kick Linked" : "Login with Kick";
   kickLoginBtn.disabled = kickLinked;
 
-  const youtubeLinked = hasAccount("youtube");
-  youtubeLoginBtn.textContent = youtubeLinked ? "YouTube Linked" : "Login with YouTube";
-  youtubeLoginBtn.disabled = youtubeLinked;
+  if (youtubeFeatureEnabled) {
+    const youtubeLinked = hasAccount("youtube");
+    youtubeLoginBtn.textContent = youtubeLinked ? "YouTube Linked" : "Login with YouTube";
+    youtubeLoginBtn.disabled = youtubeLinked;
+    youtubeLoginBtn.removeAttribute("title");
+  } else {
+    youtubeLoginBtn.textContent = "YouTube (coming soon)";
+    youtubeLoginBtn.disabled = true;
+    youtubeLoginBtn.title = "YouTube integration is temporarily disabled.";
+  }
 
   updateMessageControls();
 }
