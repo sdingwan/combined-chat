@@ -91,7 +91,7 @@ let userInitiatedDisconnect = false;
 let reconnectNoticeActive = false;
 let reconnectNoticeLastUpdate = 0;
 let autoReconnectSuppressed = false;
-const youtubeFeatureEnabled = false;
+const youtubeFeatureEnabled = true;
 
 if (replyPreviewIcon) {
   replyPreviewIcon.innerHTML = replyArrowSvgMarkup;
